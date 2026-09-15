@@ -12,12 +12,13 @@ logger = logging.getLogger("rcanalyst")
 from mcp.server.fastmcp import FastMCP  # noqa: E402
 
 from rcanalyst.config import load_adapters, load_topology, AdaptersFile  # noqa: E402
-from rcanalyst.models import TimeRange  # noqa: E402
+from rcanalyst.models import GenericQueryResult, TimeRange  # noqa: E402
 from rcanalyst.tools.correlate_ids import correlate_ids as _correlate_ids  # noqa: E402
 from rcanalyst.tools.analyze_visual_evidence import analyze_visual_evidence as _analyze_visual_evidence  # noqa: E402
 from rcanalyst.tools.query_generic_source import (  # noqa: E402
     query_generic_source as _query_generic_source,
     list_generic_sources as _list_generic_sources,
+    resolve_adapter as _resolve_adapter,
 )
 from rcanalyst.tools.get_coverage import get_coverage as _get_coverage  # noqa: E402
 from rcanalyst.tools.plan_investigation import plan_investigation as _plan_investigation  # noqa: E402
@@ -40,19 +41,32 @@ INSTRUCTIONS = (
 # unpredictable cwd (often "/"), so cwd-relative config would silently never
 # resolve. RCANALYST_CONFIG_DIR is the documented knob; CLAUDE_PROJECT_DIR is
 # injected by Claude Code and is the sensible default for plugin installs.
-_CONFIG_DIR = Path(
-    os.environ.get("RCANALYST_CONFIG_DIR")
-    or os.environ.get("CLAUDE_PROJECT_DIR")
-    or Path.cwd()
-)
-ADAPTERS_PATH = _CONFIG_DIR / "adapters.yaml"
-TOPOLOGY_PATH = _CONFIG_DIR / "topology.yaml"
+#
+# Resolved at CALL time, not import time: env vars (RCANALYST_CONFIG_DIR in
+# particular) can legitimately differ between calls in tests, and the project's
+# config loaders (load_adapters/load_topology) already re-read from disk on
+# every call by the same stateless design.
+def _config_dir() -> Path:
+    return Path(
+        os.environ.get("RCANALYST_CONFIG_DIR")
+        or os.environ.get("CLAUDE_PROJECT_DIR")
+        or Path.cwd()
+    )
+
+
+def _adapters_path() -> Path:
+    return _config_dir() / "adapters.yaml"
+
+
+def _topology_path() -> Path:
+    return _config_dir() / "topology.yaml"
+
 
 mcp = FastMCP("rcanalyst", instructions=INSTRUCTIONS)
 
 
 def _adapters() -> AdaptersFile:
-    return load_adapters(ADAPTERS_PATH)
+    return load_adapters(_adapters_path())
 
 
 def _allowed_hosts(adapters: AdaptersFile) -> list[str]:
@@ -78,7 +92,7 @@ def plan_investigation(identifier: str, environment: str | None = None) -> dict:
     instead once you already have log snippets in hand."""
     return _plan_investigation(
         identifier=identifier, environment=environment,
-        adapters=_adapters().sources, topology=load_topology(TOPOLOGY_PATH),
+        adapters=_adapters().sources, topology=load_topology(_topology_path()),
     ).model_dump()
 
 
@@ -110,9 +124,12 @@ def query_generic_source(source: str, params: dict[str, Any], start: str, end: s
     call. Use ONLY when no vendor MCP (Datadog/Splunk/Loki/etc.) already
     covers this source — prefer your own connected MCPs first."""
     adapters = _adapters()
-    match = next((a for a in adapters.sources if a.name == source), None)
+    match = _resolve_adapter(source, adapters.sources)
     if match is None:
-        return {"rows": [], "truncated": False, "returned_count": 0, "error": f"Unknown source '{source}'. Call list_generic_sources first."}
+        return GenericQueryResult(
+            rows=[], truncated=False, returned_count=0,
+            error=f"Unknown source '{source}'. Call list_generic_sources first.",
+        ).model_dump()
     result = _query_generic_source(
         adapter=match, params=params, time_range=TimeRange(start=start, end=end),
         allowed_hosts=_allowed_hosts(adapters), cursor=cursor,
@@ -131,7 +148,7 @@ def get_coverage(resource_type: str) -> dict:
     """Look up which observability surfaces cover (or are blind to) a resource
     type, from topology.yaml. If unknown_coverage is true, you may NOT
     conclude absence from an empty query result for this resource type."""
-    return _get_coverage(resource_type, load_topology(TOPOLOGY_PATH)).model_dump()
+    return _get_coverage(resource_type, load_topology(_topology_path())).model_dump()
 
 
 @mcp.tool()

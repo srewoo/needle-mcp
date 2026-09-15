@@ -4,7 +4,7 @@ from http.server import BaseHTTPRequestHandler, HTTPServer
 import pytest
 from rcanalyst.config import AdapterConfig
 from rcanalyst.models import TimeRange
-from rcanalyst.tools.query_generic_source import query_generic_source, list_generic_sources
+from rcanalyst.tools.query_generic_source import query_generic_source, list_generic_sources, resolve_adapter
 
 
 class _MockHandler(BaseHTTPRequestHandler):
@@ -186,6 +186,17 @@ def test_query_generic_source_blocks_off_allowlist_redirect_before_contact(mock_
     assert result.error is not None
     assert "localhost" in result.error
     assert _MockHandler.redirect_target_hit_count == 0
+
+
+def test_resolve_adapter_finds_matching_name(mock_server):
+    adapter = _adapter_for(mock_server, name="my-source")
+    other = _adapter_for(mock_server, name="other-source")
+    assert resolve_adapter("my-source", [other, adapter]) is adapter
+
+
+def test_resolve_adapter_returns_none_on_miss(mock_server):
+    adapter = _adapter_for(mock_server, name="my-source")
+    assert resolve_adapter("nonexistent", [adapter]) is None
 
 
 def test_query_generic_source_scalar_payload_does_not_crash(mock_server):

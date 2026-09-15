@@ -87,6 +87,19 @@ def test_assert_url_structure_unchanged_rejects_scheme_downgrade():
         )
 
 
+def test_assert_url_structure_unchanged_redacts_query_string_on_host_swap():
+    """The error message must not leak the query string (may carry
+    tokens/PII) of the built URL that failed the host check."""
+    with pytest.raises(HostNotAllowedError) as exc_info:
+        assert_url_structure_unchanged(
+            "https://evil.example.com/api/q?token=secret-abc123",
+            "https://loki.example.internal",
+        )
+    message = str(exc_info.value)
+    assert "token=secret-abc123" not in message
+    assert "evil.example.com/api/q" in message
+
+
 def test_assert_url_structure_unchanged_rejects_dot_dot_path_segment():
     """Base-path startswith check is a no-op for bare-host base_urls (every
     shipped adapter): base.path == "" and startswith("") is always True. This

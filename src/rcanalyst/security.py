@@ -66,8 +66,8 @@ def assert_url_structure_unchanged(built_url: str, base_url: str) -> None:
     base = urlparse(base_url)
     if built.scheme != base.scheme or built.hostname != base.hostname or built.port != base.port:
         raise HostNotAllowedError(
-            f"Built URL '{built_url}' does not match adapter base '{base_url}' "
-            "in scheme/host/port; refusing to send it."
+            f"Built URL '{redact_url(built_url)}' does not match adapter base "
+            f"'{redact_url(base_url)}' in scheme/host/port; refusing to send it."
         )
     if not built.path.startswith(base.path.rstrip("/")):
         raise HostNotAllowedError(

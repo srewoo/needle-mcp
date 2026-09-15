@@ -153,6 +153,13 @@ def query_generic_source(
     )
 
 
+def resolve_adapter(source: str, adapters: list[AdapterConfig]) -> AdapterConfig | None:
+    """Look up an adapter by name from the configured list. Returns None on a
+    miss so the caller can build a structured, schema-conformant error result
+    rather than raising."""
+    return next((a for a in adapters if a.name == source), None)
+
+
 def list_generic_sources(adapters: list[AdapterConfig]) -> list[dict]:
     return [
         {
