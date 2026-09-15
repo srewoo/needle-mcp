@@ -170,7 +170,7 @@ def plan_investigation(identifier: str, environment: str | None = None) -> dict:
 
 @mcp.tool()
 def analyze_visual_evidence(
-    context: str,
+    context: str = "",
     image_base64: str | None = None,
     har_json: str | dict[str, Any] | list[Any] | None = None,
     har_path: str | None = None,

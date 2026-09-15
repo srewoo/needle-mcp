@@ -294,3 +294,11 @@ def test_har_input_that_is_not_an_object_returns_a_note():
     result = analyze_visual_evidence(context="x", har_json="[1, 2, 3]")
     assert result.har_entries == []
     assert any("not a HAR document" in n for n in result.notes)
+
+
+def test_context_is_optional():
+    """SKILL.md and README both document calls that omit `context`; it is never
+    read by this tool, so requiring it turned those documented calls into
+    errors."""
+    result = analyze_visual_evidence(har_json=json.dumps(SAMPLE_HAR))
+    assert len(result.har_entries) == 1

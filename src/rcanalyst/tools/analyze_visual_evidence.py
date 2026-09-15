@@ -90,7 +90,11 @@ def _parse_har_entries(har: dict, slow_threshold_ms: float) -> tuple[list[HarEnt
 
 
 def analyze_visual_evidence(
-    context: str,
+    # Never read by this tool — it exists so the caller can state what it is
+    # looking at. Defaulted because SKILL.md and README both document calls that
+    # omit it, and a required-but-unused parameter turns those documented calls
+    # into errors.
+    context: str = "",
     image_base64: str | None = None,
     har_json: str | None = None,
     har_path: str | None = None,

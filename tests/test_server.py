@@ -98,8 +98,17 @@ def test_config_dir_resolves_adapters_path_under_env_var(monkeypatch, tmp_path):
     }]
 
 
-def test_server_has_instructions_mentioning_sibling_mcps():
-    assert "vendor MCP" in mcp.instructions or "vendor" in mcp.instructions.lower()
+def test_server_instructions_state_the_load_bearing_guidance():
+    """The old assertion was `"vendor MCP" in x or "vendor" in x.lower()` — the
+    second clause subsumes the first, so it passed on any text containing the
+    word "vendor" anywhere. These are the four things INSTRUCTIONS has to carry
+    on a host that reads nothing else: prefer a sibling vendor MCP, the two
+    entry points, and both envelope sentinels."""
+    text = mcp.instructions
+    assert "query_generic_source" in text and "ONLY when no such vendor MCP" in text
+    assert "plan_investigation" in text and "correlate_ids" in text
+    assert "validate_rca" in text
+    assert "BEGIN_RCANALYST_RESULT_JSON" in text and "END_RCANALYST_RESULT_JSON" in text
 
 
 # --- Methodology delivery on non-Claude-Code hosts (spec §3) ------------------

@@ -3,7 +3,9 @@ import threading
 from http.server import BaseHTTPRequestHandler, HTTPServer
 import pytest
 from rcanalyst.config import AdapterConfig
-from rcanalyst.models import TimeRange
+from urllib.parse import urlparse
+
+from rcanalyst.models import SourceInfo, TimeRange
 from rcanalyst.tools.query_generic_source import query_generic_source, list_generic_sources, resolve_adapter
 
 
@@ -334,3 +336,22 @@ def test_a_genuinely_rejected_param_still_says_rejected_param(mock_server):
         allowed_hosts=["127.0.0.1"],
     )
     assert result.error is not None and result.error.startswith("Rejected param")
+
+
+def test_list_generic_sources_host_matches_the_allowlisted_host(mock_server):
+    """list_generic_sources used to derive the host with
+    base_url.split("://")[-1].split("/")[0], which KEEPS the port, while
+    server._allowed_hosts uses urlparse().hostname, which drops it. The two
+    disagreed for every adapter on a non-default port — the mock server here is
+    exactly that case."""
+    adapter = _adapter_for(mock_server)
+    listed = list_generic_sources([adapter])[0]
+    assert listed["base_url_host"] == urlparse(adapter.base_url).hostname == "127.0.0.1"
+    assert ":" not in listed["base_url_host"]
+
+
+def test_list_generic_sources_returns_the_source_info_shape(mock_server):
+    adapter = _adapter_for(mock_server, covers=["k8s_pod"])
+    listed = list_generic_sources([adapter])[0]
+    assert listed == SourceInfo(**listed).model_dump()
+    assert set(listed) == set(SourceInfo.model_fields)

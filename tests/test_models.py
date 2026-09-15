@@ -1,3 +1,6 @@
+import pytest
+from pydantic import ValidationError
+
 from rcanalyst.models import (
     TimeRange, CorrelationCandidate, CorrelationResult, HarEntry,
     VisualEvidenceResult, GenericQueryResult, SourceInfo, CoverageResult,
@@ -41,9 +44,14 @@ def test_generic_query_result_error_shape():
     assert result.error == "boom"
 
 
-def test_source_info():
-    s = SourceInfo(name="loki", base_url_host="loki.example.internal", auth_mode="static_header")
-    assert s.covers == []
+def test_source_info_rejects_an_unknown_auth_mode():
+    """SourceInfo is the shape list_generic_sources returns; its auth_mode enum
+    is the part worth pinning, since an adapter file is user-authored."""
+    assert SourceInfo(
+        name="loki", base_url_host="loki.example.internal", auth_mode="static_header"
+    ).covers == []
+    with pytest.raises(ValidationError):
+        SourceInfo(name="loki", base_url_host="loki.example.internal", auth_mode="oauth")
 
 
 def test_coverage_result():
@@ -73,5 +81,10 @@ def test_validation_result_default_gaps_empty():
 
 
 def test_validation_gap_severity_enum():
-    gap = ValidationGap(name="format-violation", severity="blocking", detail="missing field")
-    assert gap.severity == "blocking"
+    """The name promised an enum check the body never performed. validate_rca
+    and the Stop hook both filter gaps on severity == "blocking", so a typo'd
+    severity would silently drop a gap out of the hook's blocking reason."""
+    for severity in ("blocking", "warning"):
+        assert ValidationGap(name="format-violation", severity=severity, detail="d").severity == severity
+    with pytest.raises(ValidationError):
+        ValidationGap(name="format-violation", severity="critical", detail="d")

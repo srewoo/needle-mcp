@@ -7,7 +7,7 @@ import urllib.request
 from urllib.parse import urlparse
 from rcanalyst.bounding import bound_json
 from rcanalyst.config import AdapterConfig, MissingCredentialError, resolve_adapter_credential
-from rcanalyst.models import GenericQueryResult, TimeRange
+from rcanalyst.models import GenericQueryResult, SourceInfo, TimeRange
 from rcanalyst.security import (
     assert_host_allowed, safe_encode_param, assert_url_structure_unchanged,
     HostNotAllowedError,
@@ -198,12 +198,21 @@ def resolve_adapter(source: str, adapters: list[AdapterConfig]) -> AdapterConfig
 
 
 def list_generic_sources(adapters: list[AdapterConfig]) -> list[dict]:
+    """Built through SourceInfo rather than a hand-rolled dict mirroring it.
+
+    The hand-rolled version derived the host with
+    `base_url.split("://")[-1].split("/")[0]`, which KEEPS the port, while
+    server._allowed_hosts uses urlparse().hostname, which drops it — so the host
+    this tool advertised for an adapter on a non-default port never matched the
+    one actually allowlisted. One derivation now, and the model that was defined
+    and tested but never used is the shape the tool returns.
+    """
     return [
-        {
-            "name": a.name,
-            "base_url_host": a.base_url.split("://")[-1].split("/")[0],
-            "auth_mode": a.auth_mode,
-            "covers": a.covers,
-        }
+        SourceInfo(
+            name=a.name,
+            base_url_host=urlparse(a.base_url).hostname or "",
+            auth_mode=a.auth_mode,
+            covers=a.covers,
+        ).model_dump()
         for a in adapters
     ]
