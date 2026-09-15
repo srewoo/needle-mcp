@@ -1,0 +1,14 @@
+__pycache__/
+*.py[cod]
+.venv/
+*.egg-info/
+dist/
+build/
+.pytest_cache/
+.coverage
+htmlcov/
+.superpowers/
+
+# User-authored config — never commit a deployment's own sources/topology.
+adapters.yaml
+topology.yaml
