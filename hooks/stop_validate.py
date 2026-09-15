@@ -46,37 +46,51 @@ def _last_assistant_text(transcript_path: str) -> str | None:
 
 
 def main() -> None:
-    raw_stdin = sys.stdin.read() or "{}"
-    payload = json.loads(raw_stdin)
-
-    # Without this guard, a blocking verdict re-triggers this hook forever.
-    if payload.get("stop_hook_active"):
-        return
-
-    text = payload.get("last_assistant_message")
-    if not text:
-        transcript_path = payload.get("transcript_path")
-        text = _last_assistant_text(transcript_path) if transcript_path else None
-    if not text:
-        return
-
-    match = BLOCK_PATTERN.search(text)
-    if not match:
-        return
-
+    # This hook is the project's only non-optional enforcement gate. An
+    # uncaught exception anywhere below must not propagate: if it did, Claude
+    # Code would see a non-zero exit / no decision on a turn we can't finish
+    # validating, and a bug here would then behave like a gate that blocks
+    # indefinitely with no way for the user to proceed. We deliberately fail
+    # OPEN (return silently, allowing the turn to stop) rather than fail
+    # closed — losing enforcement for one turn is recoverable; a hook that
+    # wedges every Stop is not. Nothing is printed to stdout on this path:
+    # stdout is the decision channel, and stray output there would be parsed
+    # as a malformed decision.
     try:
-        claim_json = json.loads(match.group(1).strip())
-    except json.JSONDecodeError:
-        print(json.dumps({
-            "decision": "block",
-            "reason": "RCA result block is present but is not valid JSON. Fix and re-emit it.",
-        }))
-        return
+        raw_stdin = sys.stdin.read() or "{}"
+        payload = json.loads(raw_stdin)
 
-    result = validate_rca(claim_json, investigation_log=[])
-    if not result.approved:
-        reasons = "; ".join(f"[{g.name}] {g.detail}" for g in result.gaps if g.severity == "blocking")
-        print(json.dumps({"decision": "block", "reason": f"validate_rca rejected this RCA: {reasons}"}))
+        # Without this guard, a blocking verdict re-triggers this hook forever.
+        if payload.get("stop_hook_active"):
+            return
+
+        text = payload.get("last_assistant_message")
+        if not text:
+            transcript_path = payload.get("transcript_path")
+            text = _last_assistant_text(transcript_path) if transcript_path else None
+        if not text:
+            return
+
+        match = BLOCK_PATTERN.search(text)
+        if not match:
+            return
+
+        try:
+            claim_json = json.loads(match.group(1).strip())
+        except json.JSONDecodeError:
+            print(json.dumps({
+                "decision": "block",
+                "reason": "RCA result block is present but is not valid JSON. Fix and re-emit it.",
+            }))
+            return
+
+        result = validate_rca(claim_json, investigation_log=[])
+        if not result.approved:
+            reasons = "; ".join(f"[{g.name}] {g.detail}" for g in result.gaps if g.severity == "blocking")
+            print(json.dumps({"decision": "block", "reason": f"validate_rca rejected this RCA: {reasons}"}))
+    except Exception as exc:  # noqa: BLE001 - deliberate fail-open backstop, see comment above
+        print(f"stop_validate.py: unexpected error, failing open: {exc}", file=sys.stderr)
+        return
 
 
 if __name__ == "__main__":

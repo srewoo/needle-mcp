@@ -81,3 +81,26 @@ def test_falls_back_to_transcript_when_no_last_assistant_message(tmp_path):
 def test_no_input_at_all_does_not_block():
     out = _run_hook({})
     assert out == {}
+
+
+def test_malformed_non_empty_stdin_fails_open():
+    """Non-empty malformed stdin (not the empty-stdin case `or "{}"` covers)
+    must not raise past the top-level guard: the hook should exit 0 and
+    print nothing on stdout (fail open), never crash or block."""
+    result = subprocess.run(
+        [sys.executable, str(HOOK_PATH)], input="not json at all",
+        capture_output=True, text=True,
+    )
+    assert result.returncode == 0, result.stderr
+    assert result.stdout.strip() == ""
+
+
+def test_stop_hook_active_short_circuits_with_wrapper():
+    """The fail-open try/except wrapper must not change stop_hook_active
+    ordering or behavior: it still short-circuits before any parsing."""
+    bad = {"confidence": "strong_evidence"}
+    out = _run_hook({
+        "last_assistant_message": _fenced(json.dumps(bad)),
+        "stop_hook_active": True,
+    })
+    assert out == {}
