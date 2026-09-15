@@ -1,0 +1,27 @@
+{
+  "name": "rcanalyst",
+  "version": "0.1.0",
+  "description": "Generic, credential-free RCA investigation tools and methodology, composing with whatever vendor MCPs are already connected.",
+  "mcpServers": {
+    "rcanalyst": {
+      "command": "uv",
+      "args": ["run", "--directory", "${CLAUDE_PLUGIN_ROOT}", "rcanalyst"],
+      "env": { "RCANALYST_CONFIG_DIR": "${CLAUDE_PROJECT_DIR}" }
+    }
+  },
+  "hooks": {
+    "hooks": {
+      "Stop": [
+        {
+          "hooks": [
+            {
+              "type": "command",
+              "command": "python3 ${CLAUDE_PLUGIN_ROOT}/hooks/stop_validate.py",
+              "timeout": 30
+            }
+          ]
+        }
+      ]
+    }
+  }
+}
