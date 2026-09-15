@@ -149,3 +149,72 @@ def test_methodology_path_does_not_depend_on_cwd(monkeypatch, tmp_path):
     """An MCP server inherits an unpredictable cwd; resolution must not use it."""
     monkeypatch.chdir(tmp_path)
     assert "BEGIN_RCANALYST_RESULT_JSON" in server._methodology_text()
+
+
+# --- Arguments as they arrive over the wire ----------------------------------
+#
+# FastMCP's func_metadata pre-parses a string argument whose contents parse as
+# JSON, so by the time pydantic validates, a HAR passed as text is already a
+# dict. Every other test for this tool calls the pure function in-process and
+# so never sees that coercion; only a call through mcp.call_tool does.
+
+_WIRE_HAR = {
+    "log": {
+        "entries": [
+            {
+                "request": {
+                    "method": "GET",
+                    "url": "https://api.example.com/checkout",
+                    "headers": [{"name": "x-request-id", "value": "req-wire-1"}],
+                },
+                "response": {"status": 503},
+                "time": 42,
+                "startedDateTime": "2026-09-15T10:00:00Z",
+            }
+        ]
+    }
+}
+
+
+def test_analyze_visual_evidence_accepts_har_json_as_text_over_the_wire():
+    parsed = _call("analyze_visual_evidence", {"context": "", "har_json": json.dumps(_WIRE_HAR)})
+    assert len(parsed["har_entries"]) == 1
+    assert parsed["har_entries"][0]["status"] == 503
+    assert parsed["har_entries"][0]["timestamp"] == "2026-09-15T10:00:00Z"
+    assert parsed["har_entries"][0]["correlation_headers"]["x-request-id"] == "req-wire-1"
+
+
+def test_analyze_visual_evidence_accepts_har_json_as_an_object_over_the_wire():
+    parsed = _call("analyze_visual_evidence", {"context": "", "har_json": _WIRE_HAR})
+    assert parsed["har_entries"][0]["status"] == 503
+
+
+def test_analyze_visual_evidence_har_path_still_works_over_the_wire(tmp_path):
+    har_file = tmp_path / "wire.har"
+    har_file.write_text(json.dumps(_WIRE_HAR))
+    parsed = _call("analyze_visual_evidence", {"context": "", "har_path": str(har_file)})
+    assert parsed["har_entries"][0]["status"] == 503
+
+
+def test_validate_rca_accepts_a_structured_claim_over_the_wire():
+    """claim_json is dict-typed, so FastMCP's pre-parse is harmless here — but
+    verified by an actual dispatch rather than by reasoning about it."""
+    parsed = _call("validate_rca", {"claim_json": {
+        "confidence": "inconclusive", "status": "inconclusive",
+        "root_cause": "no cause established", "affected_services": ["checkout"],
+        "environment": "prod",
+        "alert_window": {"start": "2026-09-15T10:00:00Z", "end": "2026-09-15T10:10:00Z"},
+        "evidence": [],
+    }})
+    assert parsed["approved"] is True
+
+
+def test_query_generic_source_accepts_dict_params_over_the_wire(monkeypatch, tmp_path):
+    """params is dict-typed; confirm the unknown-source path is reached rather
+    than an argument-validation error."""
+    monkeypatch.setenv("RCANALYST_CONFIG_DIR", str(tmp_path))
+    parsed = _call("query_generic_source", {
+        "source": "nope", "params": {"query": "checkout"},
+        "start": "2026-09-15T10:00:00Z", "end": "2026-09-15T10:10:00Z",
+    })
+    assert "Unknown source" in parsed["error"]

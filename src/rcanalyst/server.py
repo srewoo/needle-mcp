@@ -1,4 +1,5 @@
 from __future__ import annotations
+import json
 import logging
 import os
 import sys
@@ -171,7 +172,7 @@ def plan_investigation(identifier: str, environment: str | None = None) -> dict:
 def analyze_visual_evidence(
     context: str,
     image_base64: str | None = None,
-    har_json: str | None = None,
+    har_json: str | dict[str, Any] | list[Any] | None = None,
     har_path: str | None = None,
     slow_threshold_ms: float = 1000,
 ) -> dict:
@@ -183,6 +184,14 @@ def analyze_visual_evidence(
     unchanged (this tool runs no vision model), so round-tripping one you can
     already see just puts a second copy in your context. Pass it only if you
     need the image echoed back alongside HAR findings."""
+    # FastMCP's func_metadata pre-parses a string argument whose contents happen
+    # to parse as JSON, so a host sending har_json as HAR *text* — its one
+    # intended use — delivers a dict here and a `str`-only annotation rejects the
+    # call before the tool body ever runs. Accept either shape at the wire
+    # boundary and re-serialise; the pure function's str-only contract is
+    # correct and stays untouched.
+    if har_json is not None and not isinstance(har_json, str):
+        har_json = json.dumps(har_json)
     return _analyze_visual_evidence(
         context=context, image_base64=image_base64, har_json=har_json,
         har_path=har_path, slow_threshold_ms=slow_threshold_ms,
