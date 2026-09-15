@@ -282,7 +282,11 @@ question, (b) a bare identifier → `plan_investigation`, (c) a pasted screensho
   therefore exactly as untrusted as `params`; the *built* URL is checked by
   `assert_url_structure_unchanged` to still match the adapter's scheme/host/port
   and to contain no `..` path segment; off-allowlist redirects are refused by a
-  custom redirect handler **before** the new host is contacted; hard request
+  custom redirect handler **before** the new host is contacted, and that
+  handler's allowlist is scoped to the **single adapter being queried** rather
+  than the union of every configured adapter's host — urllib carries a request's
+  headers across a redirect, so a union-scoped list would let a redirect from
+  adapter A to adapter B's host deliver A's `Authorization` token to B; hard request
   timeout and response size cap apply; and every error is returned as a
   structured `GenericQueryResult`, never raised.
 

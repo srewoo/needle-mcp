@@ -4,6 +4,7 @@ import json
 import os
 import urllib.error
 import urllib.request
+from urllib.parse import urlparse
 from rcanalyst.bounding import bound_json
 from rcanalyst.config import AdapterConfig, resolve_adapter_credential
 from rcanalyst.models import GenericQueryResult, TimeRange
@@ -97,7 +98,17 @@ def query_generic_source(
         url = _build_url(adapter, params, time_range, cursor)
         assert_url_structure_unchanged(url, adapter.base_url)
         headers = _build_headers(adapter)
-        opener = urllib.request.build_opener(_AllowlistRedirectHandler(allowed_hosts))
+        # The redirect allowlist is scoped to THIS adapter's own host, not the
+        # union of every configured adapter's host. urllib carries a request's
+        # headers across a redirect, so a redirect from adapter A to adapter B's
+        # host would otherwise pass the union allowlist and deliver A's
+        # Authorization token to B. A legitimate adapter never needs to redirect
+        # to a different vendor mid-query. The pre-request assert_host_allowed
+        # above deliberately still checks the FULL allowlist: that one answers
+        # "is this a configured source?", this one answers "may this request's
+        # credentials travel there?" — different questions, different scopes.
+        redirect_hosts = [h for h in (urlparse(adapter.base_url).hostname,) if h]
+        opener = urllib.request.build_opener(_AllowlistRedirectHandler(redirect_hosts))
         request = urllib.request.Request(url, headers=headers)
         with opener.open(request, timeout=REQUEST_TIMEOUT_SECONDS) as response:
             raw = response.read(MAX_RESPONSE_BYTES + 1)

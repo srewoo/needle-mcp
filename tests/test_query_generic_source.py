@@ -212,3 +212,48 @@ def test_query_generic_source_scalar_payload_does_not_crash(mock_server):
     assert result.error is None
     assert result.rows == []
     assert result.next_cursor is None
+
+
+def test_redirect_to_a_different_configured_adapters_host_is_refused(mock_server, monkeypatch):
+    """Credentials must not cross adapters on a redirect.
+
+    Here 'localhost' IS in allowed_hosts — it stands for a second configured
+    adapter, exactly as server._allowed_hosts() builds the union of every
+    adapter's host. urllib carries request headers across redirects, so with a
+    union-scoped redirect allowlist this request would follow the redirect and
+    hand adapter A's Authorization header to adapter B's host. The redirect
+    allowlist is therefore scoped to the single adapter being queried.
+    """
+    monkeypatch.setenv("SOURCE_A_TOKEN", "Bearer source-a-secret")
+    adapter = _adapter_for(
+        mock_server,
+        name="source-a",
+        auth_mode="static_header",
+        auth_env_var="SOURCE_A_TOKEN",
+        query_template="/redirect?q={query}&start={start}&end={end}",
+    )
+    _MockHandler.redirect_target_hit_count = 0
+    result = query_generic_source(
+        adapter=adapter, params={"query": "checkout"},
+        time_range=TimeRange(start="2026-09-15T00:00:00Z", end="2026-09-15T01:00:00Z"),
+        # The FULL allowlist, as server.py computes it: both adapters' hosts.
+        allowed_hosts=["127.0.0.1", "localhost"],
+    )
+    assert result.error is not None
+    assert "localhost" in result.error
+    assert _MockHandler.redirect_target_hit_count == 0, (
+        "adapter A's credentialed request reached adapter B's host"
+    )
+
+
+def test_pre_request_host_check_still_uses_the_full_allowlist(mock_server):
+    """Scoping the REDIRECT allowlist must not narrow the pre-request check —
+    an adapter whose own host is in the configured union still queries fine."""
+    adapter = _adapter_for(mock_server)
+    result = query_generic_source(
+        adapter=adapter, params={"query": "checkout"},
+        time_range=TimeRange(start="2026-09-15T00:00:00Z", end="2026-09-15T01:00:00Z"),
+        allowed_hosts=["127.0.0.1", "localhost", "logs.other.internal"],
+    )
+    assert result.error is None
+    assert result.returned_count == 1
