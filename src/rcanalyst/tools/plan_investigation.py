@@ -13,6 +13,47 @@ _DECIMAL = re.compile(r"^\d{6,20}$")
 # the consumer's log can trail the producer's by tens of minutes.
 _ASYNC_MARKERS = ("msg", "message", "job", "task", "event", "batch", "delivery")
 
+# Which of correlate_ids' KEY_PATTERNS could plausibly carry an identifier of a
+# given shape. likely_key_names previously returned every key regardless of
+# kind: ASYNC_KEYS is a strict SUBSET of KEY_PATTERNS, so both arms of the
+# is_async conditional produced the identical list and the field was never
+# "likely" — a UUID was told it might appear under `x-datadog-trace-id`
+# (decimal only) or `traceparent` (a fixed `00-<32hex>-<16hex>-<2hex>` string).
+# This is the headline output of the bare-identifier entry point, so a wrong
+# hint buys a wasted vendor query.
+#
+# The generic request/correlation keys carry any opaque token and so appear for
+# every kind; the vendor-format-specific keys appear only where the identifier —
+# or one of its equivalent_forms, per normalize_identifier — can actually be
+# written that way.
+_GENERIC_KEYS = {"x-request-id", "request_id", "correlation_id"}
+_ASYNC_ONLY_KEYS = {"message_id", "job_id"}
+LIKELY_KEYS_BY_KIND: dict[str, set[str]] = {
+    # Dashed 8-4-4-4-12 hex: a generic token. No vendor trace format is spelled
+    # this way, and span_id is 16 hex, not a dashed UUID.
+    "uuid": _GENERIC_KEYS | {"trace_id"},
+    # 32 hex: the W3C trace-id, embedded in traceparent and convertible to
+    # Datadog's decimal spelling.
+    "w3c_trace": _GENERIC_KEYS | {"trace_id", "traceparent", "x-datadog-trace-id", "span_id"},
+    # Decimal: Datadog's own spelling, hex-convertible to the W3C forms.
+    "datadog_decimal_trace": _GENERIC_KEYS | {"trace_id", "traceparent", "x-datadog-trace-id", "span_id"},
+    # 1-<8hex>-<24hex>: only AWS writes this.
+    "aws_xray": _GENERIC_KEYS | {"trace_id", "x-amzn-trace-id"},
+    # Shape tells us nothing, so narrowing here would be a guess dressed as fact.
+    "opaque": set(KEY_PATTERNS.keys()),
+}
+
+
+def _likely_key_names(kind: str, is_async: bool) -> list[str]:
+    keys = set(LIKELY_KEYS_BY_KIND.get(kind) or KEY_PATTERNS.keys())
+    if is_async:
+        keys |= ASYNC_KEYS
+    else:
+        keys -= _ASYNC_ONLY_KEYS
+    # Intersect so this can never name a key correlate_ids cannot extract.
+    return sorted(keys & set(KEY_PATTERNS.keys()))
+
+
 SYNC_WINDOW_HINT = "+/- 2 minutes around the identifier's first sighting"
 ASYNC_WINDOW_HINT = (
     "first sighting - 5 minutes to first sighting + 60 minutes (forward-widened: "
@@ -116,8 +157,7 @@ def plan_investigation(
         identifier=identifier,
         identifier_kind=kind,
         equivalent_forms=normalize_identifier(identifier),
-        likely_key_names=sorted(KEY_PATTERNS.keys()) if not is_async
-        else sorted(set(KEY_PATTERNS.keys()) | ASYNC_KEYS),
+        likely_key_names=_likely_key_names(kind, is_async),
         is_async_shaped=is_async,
         suggested_window_hint=ASYNC_WINDOW_HINT if is_async else SYNC_WINDOW_HINT,
         queryable_sources=sources,

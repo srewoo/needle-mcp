@@ -1,4 +1,5 @@
 from rcanalyst.config import AdapterConfig, SurfaceCoverage, TopologyFile
+from rcanalyst.tools.correlate_ids import KEY_PATTERNS
 from rcanalyst.tools.plan_investigation import (
     ASYNC_WINDOW_HINT,
     SYNC_WINDOW_HINT,
@@ -108,3 +109,74 @@ def test_environment_echoed_into_next_steps_when_given():
 def test_environment_missing_prompts_for_it():
     plan = plan_investigation("sess_abc123XYZ", None, _adapters(), TopologyFile())
     assert any("environment" in step.lower() for step in plan.next_steps)
+
+
+# --- likely_key_names actually filters (I6) -----------------------------------
+#
+# The field previously returned every key in KEY_PATTERNS for every identifier:
+# ASYNC_KEYS is a strict SUBSET of KEY_PATTERNS, so both arms of the is_async
+# conditional produced the identical list. Nothing was "likely" about it.
+
+
+def _plan_for(identifier: str):
+    return plan_investigation(
+        identifier=identifier, environment="prod", adapters=[], topology=TopologyFile(),
+    )
+
+
+def test_uuid_is_not_offered_datadog_or_traceparent_specific_keys():
+    """A dashed UUID cannot be written as a decimal Datadog trace id or as a
+    traceparent's fixed 00-<32hex>-<16hex>-<2hex> string."""
+    plan = _plan_for("6f0a1b2c-3d4e-5f60-7182-93a4b5c6d7e8")
+    assert plan.identifier_kind == "uuid"
+    assert "x-datadog-trace-id" not in plan.likely_key_names
+    assert "traceparent" not in plan.likely_key_names
+    assert "x-amzn-trace-id" not in plan.likely_key_names
+    assert "x-request-id" in plan.likely_key_names
+
+
+def test_likely_key_names_differ_across_identifier_kinds():
+    """The point of the field: the same list for every id is no signal at all."""
+    uuid_keys = set(_plan_for("6f0a1b2c-3d4e-5f60-7182-93a4b5c6d7e8").likely_key_names)
+    w3c_keys = set(_plan_for("4bf92f3577b34da6a3ce929d0e0e4736").likely_key_names)
+    xray_keys = set(_plan_for("1-5759e988-bd862e3fe1be46a994272793").likely_key_names)
+    assert uuid_keys != w3c_keys != xray_keys
+    assert "traceparent" in w3c_keys
+    assert "x-amzn-trace-id" in xray_keys
+    assert "traceparent" not in xray_keys
+
+
+def test_datadog_decimal_trace_gets_the_datadog_key():
+    plan = _plan_for("13088165645273925280")
+    assert plan.identifier_kind == "datadog_decimal_trace"
+    assert "x-datadog-trace-id" in plan.likely_key_names
+
+
+def test_opaque_identifier_is_not_narrowed():
+    """Shape tells us nothing, so narrowing would be a guess dressed as fact."""
+    plan = _plan_for("sess_ABCdef")
+    assert plan.identifier_kind == "opaque"
+    assert set(plan.likely_key_names) >= {"x-request-id", "traceparent", "x-datadog-trace-id"}
+
+
+def test_async_shaped_identifier_gains_the_async_keys():
+    plan = _plan_for("msg-6f0a1b2c3d4e")
+    assert plan.is_async_shaped is True
+    assert {"message_id", "job_id"} <= set(plan.likely_key_names)
+
+
+def test_non_async_identifier_is_not_offered_the_async_only_keys():
+    plan = _plan_for("6f0a1b2c-3d4e-5f60-7182-93a4b5c6d7e8")
+    assert plan.is_async_shaped is False
+    assert "message_id" not in plan.likely_key_names
+    assert "job_id" not in plan.likely_key_names
+
+
+def test_likely_key_names_never_name_a_key_correlate_ids_cannot_extract():
+    for identifier in ("6f0a1b2c-3d4e-5f60-7182-93a4b5c6d7e8",
+                       "4bf92f3577b34da6a3ce929d0e0e4736",
+                       "1-5759e988-bd862e3fe1be46a994272793",
+                       "13088165645273925280", "sess_ABCdef", "msg-abc123"):
+        plan = _plan_for(identifier)
+        assert set(plan.likely_key_names) <= set(KEY_PATTERNS.keys())
+        assert plan.likely_key_names, identifier
