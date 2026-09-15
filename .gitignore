@@ -12,3 +12,6 @@ htmlcov/
 # User-authored config — never commit a deployment's own sources/topology.
 adapters.yaml
 topology.yaml
+
+# macOS finder junk
+.DS_Store
