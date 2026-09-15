@@ -84,3 +84,11 @@ def test_example_topology_file_parses():
     result = load_topology(REPO_ROOT / "topology.example.yaml")
     assert "datadog_logs" in result.surfaces
     assert result.surfaces["loki"].blind_to  # non-empty
+
+    # datadog_logs: log coverage is opt-in per service, so an empty result is
+    # the ordinary case, not evidence a service was quiet.
+    assert "ORDINARY case" in result.surfaces["datadog_logs"].coverage_note
+
+    # datadog_apm: traces are sampled, so a missing error span is not proof
+    # no errors occurred.
+    assert "sampled" in result.surfaces["datadog_apm"].coverage_note

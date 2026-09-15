@@ -57,6 +57,13 @@ def load_topology(path: str | Path) -> TopologyFile:
 
 
 def resolve_adapter_credential(adapter: AdapterConfig) -> str | None:
+    """Resolve the credential for a static_header adapter from its env var.
+
+    Scoped to auth_mode == "static_header" ONLY. Returns None for "none" and,
+    deliberately, for "basic" -- basic-auth credentials are assembled from
+    basic_user_env_var/basic_pass_env_var by query_generic_source._build_headers,
+    not here. Do not route basic auth through this function expecting credentials.
+    """
     if adapter.auth_mode == "static_header":
         if not adapter.auth_env_var:
             raise ValueError(f"Adapter '{adapter.name}' is static_header but has no auth_env_var")
