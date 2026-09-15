@@ -21,6 +21,12 @@ ASYNC_WINDOW_HINT = (
 )
 
 
+# NOTE: _W3C_TRACE is checked before _DECIMAL, but that ordering is currently
+# inert for this pair: _DECIMAL is bounded to {6,20} digits while _W3C_TRACE
+# requires exactly 32 hex chars, so no input can match both. The order is kept
+# as defence in case _DECIMAL's upper bound is ever widened toward 32 — at
+# that point the ordering would become the only thing preventing a 32-digit
+# decimal trace id from being misclassified as datadog_decimal_trace.
 def _classify(identifier: str) -> str:
     if _UUID.match(identifier):
         return "uuid"
@@ -38,15 +44,9 @@ def _is_async_shaped(identifier: str) -> bool:
     return any(marker in lowered for marker in _ASYNC_MARKERS)
 
 
-def plan_investigation(
-    identifier: str,
-    environment: str | None,
-    adapters: list[AdapterConfig],
-    topology: TopologyFile,
-) -> IdentifierPlan:
-    kind = _classify(identifier)
-    is_async = _is_async_shaped(identifier)
-
+def _build_sources(
+    adapters: list[AdapterConfig], topology: TopologyFile
+) -> list[SourceCandidate]:
     sources: list[SourceCandidate] = [
         SourceCandidate(
             name=a.name, kind="configured_adapter", covers=a.covers,
@@ -59,7 +59,12 @@ def plan_investigation(
             name=name, kind="coverage_surface", covers=surface.covers,
             note=surface.coverage_note,
         ))
+    return sources
 
+
+def _build_next_steps(
+    environment: str | None, sources: list[SourceCandidate], is_async: bool
+) -> list[str]:
     next_steps: list[str] = []
     if environment:
         next_steps.append(
@@ -93,6 +98,19 @@ def plan_investigation(
             "This id looks async: if the consumer side comes back empty, widen the "
             "window before concluding the message was never processed."
         )
+    return next_steps
+
+
+def plan_investigation(
+    identifier: str,
+    environment: str | None,
+    adapters: list[AdapterConfig],
+    topology: TopologyFile,
+) -> IdentifierPlan:
+    kind = _classify(identifier)
+    is_async = _is_async_shaped(identifier)
+    sources = _build_sources(adapters, topology)
+    next_steps = _build_next_steps(environment, sources, is_async)
 
     return IdentifierPlan(
         identifier=identifier,

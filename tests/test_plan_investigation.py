@@ -1,5 +1,9 @@
 from rcanalyst.config import AdapterConfig, SurfaceCoverage, TopologyFile
-from rcanalyst.tools.plan_investigation import plan_investigation
+from rcanalyst.tools.plan_investigation import (
+    ASYNC_WINDOW_HINT,
+    SYNC_WINDOW_HINT,
+    plan_investigation,
+)
 
 
 def _adapters() -> list[AdapterConfig]:
@@ -73,13 +77,22 @@ def test_no_sources_configured_flags_unknown_coverage():
 def test_async_shaped_identifier_widens_window_hint():
     plan = plan_investigation("msg-00ab12cd34ef", None, [], TopologyFile())
     assert plan.is_async_shaped is True
-    assert "60" in plan.suggested_window_hint
+    assert plan.suggested_window_hint == ASYNC_WINDOW_HINT
 
 
 def test_sync_identifier_keeps_tight_window_hint():
     plan = plan_investigation("3f2504e0-4f89-11d3-9a0c-0305e82c3301", None, [], TopologyFile())
     assert plan.is_async_shaped is False
-    assert "2" in plan.suggested_window_hint
+    assert plan.suggested_window_hint == SYNC_WINDOW_HINT
+
+
+def test_classifies_32_digit_decimal_string_as_w3c_trace():
+    # Pins current behaviour: _DECIMAL is bounded to {6,20} digits, so a
+    # 32-character all-decimal string can only match _W3C_TRACE (digits are
+    # legal hex). This would fail if _DECIMAL's bound were ever widened
+    # toward 32 without preserving the _W3C_TRACE-before-_DECIMAL order.
+    plan = plan_investigation("1" * 32, None, [], TopologyFile())
+    assert plan.identifier_kind == "w3c_trace"
 
 
 def test_next_steps_mention_correlate_ids_handoff():
