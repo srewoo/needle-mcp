@@ -37,16 +37,14 @@ const METHODOLOGY_MISSING =
  * degrades to a short fallback rather than taking the server down, since this is
  * read during prompt/resource access on every host that connects.
  */
-export function methodologyText(): string {
-  for (const candidate of METHODOLOGY_CANDIDATES) {
+export function methodologyText(candidates: readonly string[] = METHODOLOGY_CANDIDATES): string {
+  for (const candidate of candidates) {
     try {
       return readFileSync(candidate, "utf-8");
     } catch {
       continue;
     }
   }
-  logger.warn(
-    `rca-methodology SKILL.md not found in any of ${JSON.stringify(METHODOLOGY_CANDIDATES)}`,
-  );
+  logger.warn(`rca-methodology SKILL.md not found in any of ${JSON.stringify(candidates)}`);
   return METHODOLOGY_MISSING;
 }

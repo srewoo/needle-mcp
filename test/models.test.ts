@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import {
   CorrelationCandidateSchema,
+  CorrelationResultSchema,
   CoverageResultSchema,
   GenericQueryResultSchema,
   HarEntrySchema,
@@ -30,6 +31,17 @@ describe("models", () => {
     expect(c.equivalent_forms).toEqual([]);
     expect(c.source_systems).toEqual([]);
     expect(c.suggested_window).toBeNull();
+  });
+
+  it("holds candidates on a CorrelationResult", () => {
+    const c = CorrelationCandidateSchema.parse({
+      value: "abc123",
+      key_name: "x-request-id",
+      seen_in_snippets: [0],
+      confidence: "high",
+      why_ranked: "test",
+    });
+    expect(CorrelationResultSchema.parse({ candidates: [c] }).candidates).toHaveLength(1);
   });
 
   it("defaults HarEntry.timestamp and VisualEvidenceResult fields", () => {

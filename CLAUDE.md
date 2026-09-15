@@ -170,6 +170,22 @@ The port is otherwise output-identical (verified by a differential harness over
   `message_id` and `job_id` from a snippet set where the Python implementation
   returned only `trace_id`. `plan_investigation` and `validate_rca` output is
   unchanged in every case.
+- **`redactUrl` drops `user:pass@` userinfo.** The Python version rebuilt from
+  `urlparse().netloc`, which preserved embedded credentials — a redaction helper
+  that echoes credentials is not redacting.
+- **`redactUrl` no longer emits `"://"` for an empty or unparseable URL.** A HAR
+  entry with no request URL produced the literal string `"://"`; it now returns
+  `""` and an unparseable URL comes back verbatim minus its query string.
+
+Cosmetic, non-functional differences, recorded so a future differential run is
+not mistaken for a regression:
+
+- `redactUrl` keeps a bare host's trailing slash (`https://x.com/`), because
+  `URL.pathname` is `"/"` where `urlparse().path` was `""`. Also visible in the
+  `assertUrlStructureUnchanged` error text.
+- Durations serialize as `1500` rather than `1500.0`; JS has no float/int
+  distinction. Numerically equal.
+- `boundJson` uses compact JSON separators — see Known sharp edges.
 
 ## Known sharp edges
 
