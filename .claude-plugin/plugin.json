@@ -5,23 +5,19 @@
   "mcpServers": {
     "rcanalyst": {
       "command": "uv",
-      "args": ["run", "--directory", "${CLAUDE_PLUGIN_ROOT}", "rcanalyst"],
-      "env": { "RCANALYST_CONFIG_DIR": "${CLAUDE_PROJECT_DIR}" }
+      "args": [
+        "run",
+        "--directory",
+        "${CLAUDE_PLUGIN_ROOT}",
+        "rcanalyst"
+      ],
+      "env": {
+        "RCANALYST_CONFIG_DIR": "${CLAUDE_PROJECT_DIR}"
+      }
     }
   },
-  "hooks": {
-    "hooks": {
-      "Stop": [
-        {
-          "hooks": [
-            {
-              "type": "command",
-              "command": "python3 ${CLAUDE_PLUGIN_ROOT}/hooks/stop_validate.py",
-              "timeout": 30
-            }
-          ]
-        }
-      ]
-    }
+  "hooks": "./hooks/hooks.json",
+  "author": {
+    "name": "rcAnalyst maintainers"
   }
 }

@@ -15,3 +15,6 @@ topology.yaml
 
 # macOS finder junk
 .DS_Store
+
+# uv generates this on `uv run`; resolution is machine-local and not part of the plugin contract.
+uv.lock
