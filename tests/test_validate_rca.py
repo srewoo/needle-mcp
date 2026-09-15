@@ -1,3 +1,4 @@
+from rcanalyst.models import ValidationResult
 from rcanalyst.tools.validate_rca import validate_rca
 
 
@@ -116,7 +117,57 @@ def test_mixed_environment_evidence_rejected():
 
 
 def test_required_action_surfaces_first_gap_detail():
-    claim = _valid_claim()
-    del claim["root_cause"]
+    # Two independent gaps in a known order: the missing 'environment' field is
+    # detected in the required-field loop (which runs first), the invalid
+    # 'confidence' enum value is detected afterwards. required_action must
+    # reflect gaps[0] specifically, not just "any" gap or a hardcoded string.
+    claim = _valid_claim(confidence="pretty_sure")
+    del claim["environment"]
     result = validate_rca(claim, [])
-    assert result.required_action is not None
+    assert len(result.gaps) >= 2
+    assert result.required_action == result.gaps[0].detail
+    assert "environment" in result.required_action.lower()
+    assert "confidence" not in result.required_action.lower()
+
+
+def test_evidence_with_non_dict_rows_does_not_raise():
+    claim = _valid_claim(evidence=["not a dict"])
+    result = validate_rca(claim, [])
+    assert isinstance(result, ValidationResult)
+    assert result.approved is False
+
+
+def test_evidence_null_does_not_raise():
+    claim = _valid_claim(evidence=None)
+    result = validate_rca(claim, [])
+    assert isinstance(result, ValidationResult)
+    assert result.approved is False
+
+
+def test_root_cause_non_string_does_not_raise():
+    claim = _valid_claim(root_cause=12345)
+    result = validate_rca(claim, [])
+    assert isinstance(result, ValidationResult)
+    assert result.approved is False
+
+
+def test_hop_trace_wrong_type_does_not_raise():
+    claim = _valid_claim(hop_trace=["not", "a", "dict"])
+    result = validate_rca(claim, [])
+    assert isinstance(result, ValidationResult)
+    assert result.approved is False
+
+
+def test_monitored_resource_wrong_type_does_not_raise():
+    claim = _valid_claim(monitored_resource=["not", "a", "dict"])
+    result = validate_rca(claim, [])
+    assert isinstance(result, ValidationResult)
+    assert result.approved is False
+
+
+def test_malformed_alert_window_reports_format_violation():
+    claim = _valid_claim(alert_window={"start": "not-a-timestamp", "end": "also-not"})
+    result = validate_rca(claim, [])
+    assert isinstance(result, ValidationResult)
+    assert any(g.name == "format-violation" for g in result.gaps)
+    assert result.approved is False
