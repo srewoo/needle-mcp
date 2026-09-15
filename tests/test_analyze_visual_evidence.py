@@ -132,6 +132,23 @@ def test_null_time_does_not_crash():
     assert result.har_entries[0].time_ms == 0
 
 
+def test_string_status_does_not_crash():
+    har = {
+        "log": {
+            "entries": [
+                {
+                    "request": {"method": "GET", "url": "https://api.example.com/a", "headers": []},
+                    "response": {"status": "500"},
+                    "time": 100,
+                }
+            ]
+        }
+    }
+    result = analyze_visual_evidence(context="x", har_json=json.dumps(har))
+    assert len(result.har_entries) == 1
+    assert result.har_entries[0].status == 500
+
+
 def test_header_missing_value_does_not_crash():
     har = {
         "log": {

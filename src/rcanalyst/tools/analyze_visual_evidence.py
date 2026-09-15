@@ -26,7 +26,10 @@ def _parse_har_entries(har: dict, slow_threshold_ms: float) -> tuple[list[HarEnt
     for entry in entries:
         request = entry.get("request") or {}
         response = entry.get("response") or {}
-        status = response.get("status", 0) or 0
+        try:
+            status = int(response.get("status") or 0)
+        except (TypeError, ValueError):
+            status = 0
         try:
             time_ms = float(entry.get("time") or 0)
         except (TypeError, ValueError):
