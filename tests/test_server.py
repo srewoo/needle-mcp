@@ -27,12 +27,6 @@ def test_all_expected_tools_are_registered():
     }
 
 
-def test_correlate_ids_tool_returns_plain_dict():
-    result = asyncio.run(mcp.call_tool("correlate_ids", {"evidence_snippets": ["x-request-id=req-1"]}))
-    # FastMCP wraps tool results in content blocks; assert it ran without error.
-    assert result is not None
-
-
 def test_correlate_ids_wrapper_surfaces_the_known_id():
     parsed = _call("correlate_ids", {"evidence_snippets": ["x-request-id=req-12345"]})
     assert parsed["candidates"][0]["value"] == "req-12345"
