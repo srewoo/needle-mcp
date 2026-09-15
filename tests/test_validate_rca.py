@@ -171,3 +171,63 @@ def test_malformed_alert_window_reports_format_violation():
     assert isinstance(result, ValidationResult)
     assert any(g.name == "format-violation" for g in result.gaps)
     assert result.approved is False
+
+
+# --- The narration-only envelope (I5) ----------------------------------------
+#
+# 'evidence' was not in REQUIRED_FIELD_TYPES, and _alert_window_gaps returned
+# early on a falsy alert_window, so an envelope with the five required scalars,
+# zero evidence rows and no window was APPROVED — precisely the narration the
+# Stop hook exists to block (spec §3).
+
+_NARRATION_ONLY = {
+    "confidence": "partial_evidence",
+    "status": "partial",
+    "root_cause": "the checkout service was probably overloaded",
+    "affected_services": ["checkout"],
+    "environment": "prod",
+}
+
+
+def test_evidence_free_envelope_is_rejected():
+    result = validate_rca(dict(_NARRATION_ONLY), [])
+    assert result.approved is False
+    names = {g.name for g in result.gaps}
+    assert "no-evidence-cited" in names
+    assert "alert-window-missing" in names
+
+
+def test_missing_alert_window_is_rejected_even_with_evidence():
+    claim = _valid_claim()
+    del claim["alert_window"]
+    result = validate_rca(claim, [])
+    assert result.approved is False
+    assert {g.name for g in result.gaps} == {"alert-window-missing"}
+
+
+def test_empty_evidence_list_is_rejected():
+    result = validate_rca(_valid_claim(evidence=[]), [])
+    assert result.approved is False
+    assert any(g.name == "no-evidence-cited" for g in result.gaps)
+
+
+def test_inconclusive_confidence_may_cite_no_evidence():
+    """'I found nothing' is the honest answer, and has nothing to cite."""
+    claim = _valid_claim(confidence="inconclusive", status="inconclusive", evidence=[])
+    result = validate_rca(claim, [])
+    assert result.approved is True, result.gaps
+
+
+def test_inconclusive_still_requires_an_alert_window():
+    claim = _valid_claim(confidence="inconclusive", status="inconclusive", evidence=[])
+    del claim["alert_window"]
+    result = validate_rca(claim, [])
+    assert result.approved is False
+    assert any(g.name == "alert-window-missing" for g in result.gaps)
+
+
+def test_new_gap_names_follow_the_existing_kebab_case_style():
+    result = validate_rca(dict(_NARRATION_ONLY), [])
+    for gap in result.gaps:
+        assert gap.name == gap.name.lower()
+        assert " " not in gap.name and "_" not in gap.name

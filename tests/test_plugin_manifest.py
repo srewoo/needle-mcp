@@ -94,9 +94,12 @@ def test_declared_stop_hook_command_blocks_a_bad_envelope():
     command = _stop_hook_commands()[0].replace("${CLAUDE_PLUGIN_ROOT}", str(REPO_ROOT))
     message = (
         "Here is my RCA.\nBEGIN_RCANALYST_RESULT_JSON\n"
+        # Narration wearing a JSON hat: the five required scalars, zero evidence
+        # rows, no alert_window. Blocking exactly this is the gate's purpose.
         + json.dumps({
-            "confidence": "partial_evidence", "status": "resolved",
-            "root_cause": "something broke", "affected_services": ["checkout"],
+            "confidence": "partial_evidence", "status": "partial",
+            "root_cause": "checkout was probably overloaded",
+            "affected_services": ["checkout"], "environment": "prod",
         })
         + "\nEND_RCANALYST_RESULT_JSON\n"
     )

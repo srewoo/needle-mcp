@@ -186,3 +186,9 @@ in that case (a `strong_evidence` confidence is rejected while it's true).
 Omit `alert_metric`/`decomposed_by` when no metric is cited, and omit
 `monitored_resource` when the target resource was cleanly identified;
 include every other key.
+
+`alert_window` and `evidence` are not optional. An envelope with an empty or
+absent `evidence` list is rejected (`no-evidence-cited`) unless `confidence` is
+`inconclusive`, where having nothing to cite is the honest answer. An envelope
+with no `alert_window` is rejected (`alert-window-missing`), because without one
+every evidence-timestamp check is vacuous.

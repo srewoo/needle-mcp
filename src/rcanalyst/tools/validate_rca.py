@@ -76,6 +76,40 @@ def _confidence_enum_gaps(claim_json: dict) -> list[ValidationGap]:
     return []
 
 
+def _alert_window_required_gaps(claim_json: dict) -> list[ValidationGap]:
+    """An absent alert_window silently disabled the evidence-window check below,
+    which returned early on a falsy window — so an envelope simply omitting it
+    skipped the check entirely. Scoping every evidence row to the alert's own
+    window is the point of that check, so the window itself is required. Named
+    separately from 'evidence-outside-alert-window' so the two failures stay
+    distinguishable in the hook's blocking reason."""
+    if not claim_json.get("alert_window"):
+        return [_gap(
+            "alert-window-missing",
+            "No alert_window declared. Without it, evidence cannot be scoped to the "
+            "incident's own time range and every timestamp check is vacuous. State the "
+            "window the alert or report actually covers.",
+        )]
+    return []
+
+
+def _evidence_present_gaps(claim_json: dict, evidence: list[dict]) -> list[ValidationGap]:
+    """An envelope with zero evidence rows is narration wearing a JSON hat, and
+    blocking exactly that is the Stop hook's stated purpose (spec §3). The one
+    honest exception is confidence: inconclusive, where "I found nothing" IS the
+    finding and there is by definition nothing to cite."""
+    if evidence:
+        return []
+    if claim_json.get("confidence") == "inconclusive":
+        return []
+    return [_gap(
+        "no-evidence-cited",
+        "The envelope cites zero evidence rows. A root cause asserted without a "
+        "single timestamped, sourced observation is narration, not an RCA. Cite the "
+        "evidence, or set confidence to 'inconclusive'.",
+    )]
+
+
 def _alert_window_gaps(claim_json: dict, evidence: list[dict]) -> list[ValidationGap]:
     alert_window = claim_json.get("alert_window")
     if not alert_window or not evidence:
@@ -189,6 +223,8 @@ def _run_checks(claim_json: dict) -> list[ValidationGap]:
     gaps.extend(evidence_gaps)
     gaps.extend(hop_trace_gaps)
     gaps.extend(monitored_resource_gaps)
+    gaps.extend(_alert_window_required_gaps(claim_json))
+    gaps.extend(_evidence_present_gaps(claim_json, evidence))
     gaps.extend(_alert_window_gaps(claim_json, evidence))
     gaps.extend(_single_symptom_gaps(claim_json, evidence))
     gaps.extend(_forwarded_error_gaps(hop_trace, evidence))
