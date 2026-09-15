@@ -85,3 +85,13 @@ def test_assert_url_structure_unchanged_rejects_scheme_downgrade():
         assert_url_structure_unchanged(
             "http://loki.example.internal/api/q", "https://loki.example.internal"
         )
+
+
+def test_assert_url_structure_unchanged_rejects_dot_dot_path_segment():
+    """Base-path startswith check is a no-op for bare-host base_urls (every
+    shipped adapter): base.path == "" and startswith("") is always True. This
+    concrete '..' segment check must reject traversal regardless of base path."""
+    with pytest.raises(HostNotAllowedError):
+        assert_url_structure_unchanged(
+            "https://loki.example.internal/api/../admin/q", "https://loki.example.internal"
+        )

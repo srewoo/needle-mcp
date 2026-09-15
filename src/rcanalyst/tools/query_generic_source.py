@@ -30,7 +30,16 @@ class _AllowlistRedirectHandler(urllib.request.HTTPRedirectHandler):
 
 
 def _build_url(adapter: AdapterConfig, params: dict, time_range: TimeRange, cursor: str | None) -> str:
-    substitutions = {"start": time_range.start, "end": time_range.end}
+    # start/end are model-supplied tool arguments (Task 10 passes them straight
+    # through), exactly as untrusted as params — encode identically. Raw
+    # substitution previously let a value like "2026-09-15T00:00:00Z&admin=true"
+    # inject an extra query parameter into the request actually sent, since
+    # assert_url_structure_unchanged only checks urlparse().path and ignores
+    # everything after '?'.
+    substitutions = {
+        "start": safe_encode_param(time_range.start),
+        "end": safe_encode_param(time_range.end),
+    }
     for key, value in params.items():
         substitutions[key] = safe_encode_param(str(value))
     path = adapter.query_template.format(**substitutions)
@@ -54,9 +63,13 @@ def _build_headers(adapter: AdapterConfig) -> dict[str, str]:
     return headers
 
 
-def _extract_rows(payload: dict, response_path: str | None) -> list[dict]:
+def _extract_rows(payload: object, response_path: str | None) -> list[dict]:
     if not response_path:
-        return payload if isinstance(payload, list) else payload.get("rows", [])
+        if isinstance(payload, list):
+            return payload
+        if isinstance(payload, dict):
+            return payload.get("rows", [])
+        return []
     node: object = payload
     for part in response_path.split("."):
         if isinstance(node, dict):
@@ -64,6 +77,12 @@ def _extract_rows(payload: dict, response_path: str | None) -> list[dict]:
         else:
             return []
     return node if isinstance(node, list) else []
+
+
+def _extract_cursor(payload: object, cursor_field: str | None) -> str | None:
+    if not cursor_field or not isinstance(payload, dict):
+        return None
+    return payload.get(cursor_field)
 
 
 def query_generic_source(
@@ -96,6 +115,12 @@ def query_generic_source(
         return GenericQueryResult(rows=[], truncated=False, returned_count=0, error=f"Rejected param: {e}")
     except urllib.error.URLError as e:
         return GenericQueryResult(rows=[], truncated=False, returned_count=0, error=f"query_generic_source failed: {e}")
+    except Exception as e:
+        # Backstop for anything not covered above — e.g. http.client.HTTPException
+        # subclasses like IncompleteRead raised by response.read() on a truncated
+        # connection, which is not a URLError. Errors from this tool are always a
+        # structured GenericQueryResult, never a raw exception.
+        return GenericQueryResult(rows=[], truncated=False, returned_count=0, error=f"query_generic_source failed: {e}")
 
     if len(raw) > MAX_RESPONSE_BYTES:
         return GenericQueryResult(
@@ -109,7 +134,7 @@ def query_generic_source(
         return GenericQueryResult(rows=[], truncated=False, returned_count=0, error=f"Non-JSON response: {e}")
 
     rows = _extract_rows(payload, adapter.response_path)
-    next_cursor = payload.get(adapter.pagination_cursor_field) if adapter.pagination_cursor_field else None
+    next_cursor = _extract_cursor(payload, adapter.pagination_cursor_field)
     row_truncated = len(rows) > adapter.max_rows_per_call or bool(next_cursor)
     capped = rows[: adapter.max_rows_per_call]
 

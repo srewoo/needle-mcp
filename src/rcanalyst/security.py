@@ -73,3 +73,7 @@ def assert_url_structure_unchanged(built_url: str, base_url: str) -> None:
         raise HostNotAllowedError(
             f"Built URL path '{built.path}' escapes the adapter's base path; refusing to send it."
         )
+    if ".." in built.path.split("/"):
+        raise HostNotAllowedError(
+            f"Built URL path '{built.path}' contains a '..' path segment; refusing to send it."
+        )

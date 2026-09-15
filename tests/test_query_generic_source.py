@@ -8,8 +8,25 @@ from rcanalyst.tools.query_generic_source import query_generic_source, list_gene
 
 
 class _MockHandler(BaseHTTPRequestHandler):
+    requested_paths: list[str] = []
+    redirect_target_hit_count = 0
+
     def do_GET(self):
-        if "cursor=page2" in self.path:
+        type(self).requested_paths.append(self.path)
+        if self.path.startswith("/redirect-target"):
+            # Should never be reached — the redirect target is off-allowlist
+            # ("localhost" != "127.0.0.1") and must be blocked before contact.
+            type(self).redirect_target_hit_count += 1
+            body = json.dumps({"rows": [{"line": "should-not-be-reached"}]})
+        elif self.path.startswith("/redirect"):
+            self.send_response(302)
+            port = self.server.server_address[1]
+            self.send_header("Location", f"http://localhost:{port}/redirect-target")
+            self.end_headers()
+            return
+        elif "/scalar" in self.path:
+            body = json.dumps("just-a-string")
+        elif "cursor=page2" in self.path:
             body = json.dumps({"rows": [{"line": "row-page-2"}]})
         elif "/big" in self.path:
             body = json.dumps({"rows": [{"line": f"row-{i}"} for i in range(50)]})
@@ -123,3 +140,64 @@ def test_list_generic_sources_shape(mock_server):
     assert out[0]["name"] == "test-source"
     assert out[0]["covers"] == ["k8s_pod"]
     assert "auth_mode" in out[0]
+
+
+def test_query_generic_source_encodes_start_end_against_injection(mock_server):
+    """start/end are model-supplied, exactly as untrusted as params. An
+    unencoded '&admin=true' suffix must not inject an extra query parameter
+    into the request actually sent."""
+    adapter = _adapter_for(mock_server)
+    injected_start = "2026-09-15T00:00:00Z&admin=true"
+    result = query_generic_source(
+        adapter=adapter, params={"query": "checkout"},
+        time_range=TimeRange(start=injected_start, end="2026-09-15T01:00:00Z"),
+        allowed_hosts=["127.0.0.1"],
+    )
+    assert result.error is None
+    last_path = _MockHandler.requested_paths[-1]
+    assert "&admin=true" not in last_path
+    assert "%26admin%3Dtrue" in last_path
+
+
+def test_query_generic_source_next_cursor_none_on_final_page(mock_server):
+    adapter = _adapter_for(mock_server)
+    result = query_generic_source(
+        adapter=adapter, params={"query": "checkout"},
+        time_range=TimeRange(start="2026-09-15T00:00:00Z", end="2026-09-15T01:00:00Z"),
+        allowed_hosts=["127.0.0.1"],
+        cursor="page2",
+    )
+    assert result.error is None
+    assert result.next_cursor is None
+
+
+def test_query_generic_source_blocks_off_allowlist_redirect_before_contact(mock_server):
+    """The redirect target host is 'localhost', which is not in allowed_hosts
+    (only the literal '127.0.0.1' is). This must be rejected by
+    _AllowlistRedirectHandler.redirect_request BEFORE the redirect target is
+    ever contacted — proven here by asserting its hit counter stays at 0."""
+    adapter = _adapter_for(mock_server, query_template="/redirect?q={query}&start={start}&end={end}")
+    _MockHandler.redirect_target_hit_count = 0
+    result = query_generic_source(
+        adapter=adapter, params={"query": "checkout"},
+        time_range=TimeRange(start="2026-09-15T00:00:00Z", end="2026-09-15T01:00:00Z"),
+        allowed_hosts=["127.0.0.1"],
+    )
+    assert result.error is not None
+    assert "localhost" in result.error
+    assert _MockHandler.redirect_target_hit_count == 0
+
+
+def test_query_generic_source_scalar_payload_does_not_crash(mock_server):
+    """A backend returning a bare JSON scalar (valid JSON, not dict/list) must
+    not raise AttributeError from .get() calls — it must come back as a clean
+    structured result with no rows and no cursor."""
+    adapter = _adapter_for(mock_server, query_template="/scalar?q={query}&start={start}&end={end}")
+    result = query_generic_source(
+        adapter=adapter, params={"query": "checkout"},
+        time_range=TimeRange(start="2026-09-15T00:00:00Z", end="2026-09-15T01:00:00Z"),
+        allowed_hosts=["127.0.0.1"],
+    )
+    assert result.error is None
+    assert result.rows == []
+    assert result.next_cursor is None
