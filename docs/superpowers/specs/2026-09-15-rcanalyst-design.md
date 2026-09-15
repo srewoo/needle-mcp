@@ -48,6 +48,7 @@ drop into their own Claude session, with:
 ┌───────────────────────────▼───────────────────────────────────┐
 │  rcAnalyst MCP server (Python, official MCP SDK), stateless   │
 │  ├── tools/                                                    │
+│  │     plan_investigation.py                                   │
 │  │     correlate_ids.py                                        │
 │  │     analyze_visual_evidence.py                               │
 │  │     query_generic_source.py                                 │
@@ -84,6 +85,22 @@ Distribution has two forms, both built from the same source tree:
    enforcement; document it as such.
 
 ## 4. Tool Catalog
+
+### `plan_investigation(identifier, environment) -> IdentifierPlan`
+
+The bare-identifier entry point: what to do when a session id, request id, or
+trace id *is* the starting point and no logs have been collected yet.
+`correlate_ids` cannot serve this case — it requires snippets already in hand.
+
+Classifies the identifier (`uuid` / `w3c_trace` / `datadog_decimal_trace` /
+`aws_xray` / `opaque`), returns every spelling it may appear under (reusing
+`normalize_identifier`, since Datadog writes a trace id in decimal where W3C
+writes hex), names which configured adapters and coverage surfaces can answer
+for it, and emits a suggested time window — forward-widened when the identifier
+looks async (`msg`, `job`, `task`, `event`, `batch`, `delivery`), because a
+lagging consumer's log trails the producer's and a tight window reads as "never
+consumed" when the truth is "not consumed yet". Also returns `next_steps` that
+push the host to pin the environment before querying.
 
 ### `correlate_ids(evidence_snippets: list[str]) -> CorrelationResult`
 
@@ -188,7 +205,7 @@ APM is sampled; RUM is a separate product from Logs; metrics backends answer
 numbers, never strings) — a team adds its own resource types, it does not
 author the file from scratch.
 
-### `validate_rca(draft_markdown: str, claim_json: dict, investigation_log: list[dict]) -> ValidationResult`
+### `validate_rca(claim_json: dict, investigation_log: list[dict]) -> ValidationResult`
 
 Deterministic linter (pure predicates, not an LLM call) run before the host
 posts its RCA. Same gap-name vocabulary as DebugIQ's `rca-critic.md` for
@@ -222,6 +239,11 @@ Statelessness is preserved; auditability is best-effort.
 
 ## 5. Data Flow (example)
 
+Entry points, in order of how common they actually are: (a) a plain-language
+question, (b) a bare identifier → `plan_investigation`, (c) a pasted screenshot
+→ the host reads it directly, no tool call, (d) a HAR export →
+`analyze_visual_evidence`. The worked example below is (c)+(d):
+
 1. User pastes a screenshot + asks "why is checkout failing" in their own
    Claude session.
 2. Host reads the rca-methodology skill (via plugin skill load, or MCP
@@ -250,12 +272,35 @@ Statelessness is preserved; auditability is best-effort.
 - **HAR/screenshot redaction** (`analyze_visual_evidence`): header allowlist
   (never denylist), bodies dropped by default, `Authorization`/`Cookie`/
   `Set-Cookie` never returned even with `include_bodies=true`.
-- **`query_generic_source` SSRF/injection hardening**: server-side host
-  allowlist (not just declared in YAML — enforced in code), URL-encode every
-  param substitution, reject params that would change scheme/host/
-  path-prefix, block redirects off the allowlist, hard request timeout,
-  response size cap.
+- **`query_generic_source` SSRF/injection hardening**: the allowlist is derived
+  from the declared adapters and enforced in code at request time; every param
+  substitution is percent-encoded; the *built* URL is checked to still match the
+  adapter's scheme/host/port and base path prefix
+  (`assert_url_structure_unchanged`); off-allowlist redirects are refused by a
+  custom redirect handler **before** the new host is contacted; hard request
+  timeout and response size cap apply.
+
+  Note what this deliberately does **not** do: it does not reject param *values*
+  containing `://` or `..`. Searching logs for a URL is a core RCA query, and an
+  encoded value cannot escape its query-string position — so structural safety
+  is enforced on the constructed URL, not by banning substrings in user input.
 - Both are in scope for v1, not deferred.
+
+## 6a. The envelope contract
+
+The RCA envelope is emitted fenced between the exact sentinels
+`BEGIN_RCANALYST_RESULT_JSON` and `END_RCANALYST_RESULT_JSON`. This is a
+two-sided contract: the skill instructs the host to emit it, and the Claude Code
+`Stop` hook greps for exactly that block to re-run `validate_rca`. If the
+sentinel exists on only one side, enforcement is silently dead — the hook never
+matches and every turn passes. Any change to the sentinel changes both sides.
+
+## 6b. Dependency pin
+
+`mcp>=1.9.0,<2`. The `<2` bound is load-bearing: `mcp` 2.x removed
+`mcp.server.fastmcp` (FastMCP was renamed to `MCPServer`), so an unpinned
+install breaks every import in the project. Porting to 2.x is a tracked
+follow-up, not v1 scope.
 
 ## 7. Skill Content Changes vs. DEBUGIQ.md
 
@@ -312,6 +357,7 @@ rcAnalyst/
 ├── src/rcanalyst/
 │   ├── server.py                    # stdio + HTTP/SSE transports
 │   ├── tools/
+│   │   ├── plan_investigation.py
 │   │   ├── correlate_ids.py
 │   │   ├── analyze_visual_evidence.py
 │   │   ├── query_generic_source.py

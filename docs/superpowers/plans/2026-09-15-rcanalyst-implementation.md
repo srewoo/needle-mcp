@@ -4,7 +4,7 @@
 
 **Goal:** Build rcAnalyst — a stateless, credential-free MCP server (plus a Claude Code plugin distribution) that gives any Claude session generic RCA-investigation building blocks and a ported, vendor-agnostic version of DebugIQ's investigation discipline.
 
-**Architecture:** A Python MCP server (`mcp` SDK, `FastMCP`) exposing six tools with zero vendor-specific code — `correlate_ids`, `analyze_visual_evidence`, `query_generic_source`, `list_generic_sources`, `get_coverage`, `validate_rca` — backed by pure, independently-tested business-logic functions. Config (`adapters.yaml`, `topology.yaml`) is user-authored, starting from shipped examples. Methodology lives in a skill file exposed three ways: MCP `instructions`, a Claude Code plugin skill, and (implicitly) whatever the host reads. Claude Code additionally gets a `Stop` hook that runs `validate_rca` against the just-finished turn, the only distribution channel with non-optional enforcement.
+**Architecture:** A Python MCP server (`mcp` SDK, `FastMCP`) exposing seven tools with zero vendor-specific code — `plan_investigation`, `correlate_ids`, `analyze_visual_evidence`, `query_generic_source`, `list_generic_sources`, `get_coverage`, `validate_rca` — backed by pure, independently-tested business-logic functions. Config (`adapters.yaml`, `topology.yaml`) is user-authored, starting from shipped examples. Methodology lives in a skill file exposed three ways: MCP `instructions`, a Claude Code plugin skill, and (implicitly) whatever the host reads. Claude Code additionally gets a `Stop` hook that runs `validate_rca` against the just-finished turn, the only distribution channel with non-optional enforcement.
 
 **Tech Stack:** Python 3.11+, `mcp` (official Python SDK, `FastMCP`), `pydantic` v2, `pyyaml`, `pytest`. No Anthropic SDK, no Agent SDK, no database.
 
@@ -20,7 +20,14 @@
 - HAR/header redaction defaults to an **allowlist**, never a denylist; `Authorization`/`Cookie`/`Set-Cookie` are never returned by any tool regardless of flags.
 - `query_generic_source` enforces a server-side host allowlist and rejects any param value that could redirect the request off it.
 - No response is ever silently truncated without a `truncated: true` flag and an explicit note in the payload.
-- Python dependency floors: `mcp>=1.9.0`, `pydantic>=2.7`, `pyyaml>=6.0`, `pytest>=8.0`.
+- Python dependency floors: `mcp>=1.9.0,<2`, `pydantic>=2.7`, `pyyaml>=6.0`, `pytest>=8.0`.
+  **The `<2` pin is load-bearing:** `mcp` 2.x deleted `mcp.server.fastmcp` (FastMCP was
+  renamed to `MCPServer`), so an unpinned install breaks every import in this plan. Porting
+  to 2.x is a tracked follow-up, not part of v1.
+- The RCA result envelope is emitted fenced between the exact sentinels
+  `BEGIN_RCANALYST_RESULT_JSON` and `END_RCANALYST_RESULT_JSON`. The skill instructs the host
+  to emit them; the Stop hook greps for them. These two must never drift apart — if the
+  sentinel changes in one place it changes in both.
 
 ---
 
@@ -28,13 +35,14 @@
 
 **Files:**
 - Create: `pyproject.toml`
+- Create: `.gitignore`
 - Create: `src/rcanalyst/__init__.py`
 - Create: `src/rcanalyst/models.py`
 - Test: `tests/test_models.py`
 
 **Interfaces:**
 - Consumes: nothing (first task)
-- Produces: `TimeRange`, `CorrelationCandidate`, `CorrelationResult`, `HarEntry`, `VisualEvidenceResult`, `GenericQueryResult`, `SourceInfo`, `CoverageResult`, `ValidationGap`, `ValidationResult` — all `pydantic.BaseModel` subclasses in `rcanalyst.models`, used by every later task.
+- Produces: `TimeRange`, `CorrelationCandidate`, `CorrelationResult`, `HarEntry`, `VisualEvidenceResult`, `GenericQueryResult`, `SourceInfo`, `CoverageResult`, `SourceCandidate`, `IdentifierPlan`, `ValidationGap`, `ValidationResult` — all `pydantic.BaseModel` subclasses in `rcanalyst.models`, used by every later task.
 
 - [ ] **Step 1: Create the project scaffold**
 
@@ -47,7 +55,9 @@ version = "0.1.0"
 description = "Generic, credential-free MCP server for RCA investigation, composing with whatever vendor MCPs are already connected."
 requires-python = ">=3.11"
 dependencies = [
-    "mcp>=1.9.0",
+    # The <2 pin is load-bearing: mcp 2.x deleted mcp.server.fastmcp (FastMCP was
+    # renamed to MCPServer). Every import in this project assumes the 1.x layout.
+    "mcp>=1.9.0,<2",
     "pydantic>=2.7",
     "pyyaml>=6.0",
 ]
@@ -66,6 +76,25 @@ build-backend = "hatchling.build"
 packages = ["src/rcanalyst"]
 ```
 
+`.gitignore`:
+
+```gitignore
+__pycache__/
+*.py[cod]
+.venv/
+*.egg-info/
+dist/
+build/
+.pytest_cache/
+.coverage
+htmlcov/
+.superpowers/
+
+# User-authored config — never commit a deployment's own sources/topology.
+adapters.yaml
+topology.yaml
+```
+
 `src/rcanalyst/__init__.py`:
 
 ```python
@@ -82,7 +111,7 @@ __version__ = "0.1.0"
 from rcanalyst.models import (
     TimeRange, CorrelationCandidate, CorrelationResult, HarEntry,
     VisualEvidenceResult, GenericQueryResult, SourceInfo, CoverageResult,
-    ValidationGap, ValidationResult,
+    SourceCandidate, IdentifierPlan, ValidationGap, ValidationResult,
 )
 
 
@@ -130,6 +159,21 @@ def test_source_info():
 def test_coverage_result():
     cov = CoverageResult(covering_surfaces=["cloudwatch"], blind_surfaces=["loki"], unknown_coverage=False)
     assert cov.unknown_coverage is False
+
+
+def test_identifier_plan_defaults():
+    plan = IdentifierPlan(
+        identifier="abc-123", identifier_kind="opaque",
+        suggested_window_hint="+/- 2 minutes around first sighting",
+    )
+    assert plan.equivalent_forms == []
+    assert plan.is_async_shaped is False
+    assert plan.queryable_sources == []
+
+
+def test_source_candidate():
+    sc = SourceCandidate(name="loki", kind="coverage_surface", covers=["k8s_pod"])
+    assert sc.note is None
 
 
 def test_validation_result_default_gaps_empty():
@@ -216,6 +260,27 @@ class CoverageResult(BaseModel):
     unknown_coverage: bool
 
 
+class SourceCandidate(BaseModel):
+    name: str
+    kind: Literal["configured_adapter", "coverage_surface"]
+    covers: list[str] = Field(default_factory=list)
+    note: str | None = None
+
+
+class IdentifierPlan(BaseModel):
+    identifier: str
+    identifier_kind: Literal[
+        "uuid", "w3c_trace", "datadog_decimal_trace", "aws_xray", "opaque"
+    ]
+    equivalent_forms: list[str] = Field(default_factory=list)
+    likely_key_names: list[str] = Field(default_factory=list)
+    is_async_shaped: bool = False
+    suggested_window_hint: str
+    queryable_sources: list[SourceCandidate] = Field(default_factory=list)
+    unknown_coverage: bool = False
+    next_steps: list[str] = Field(default_factory=list)
+
+
 class ValidationGap(BaseModel):
     name: str
     severity: Literal["blocking", "warning"]
@@ -231,12 +296,12 @@ class ValidationResult(BaseModel):
 - [ ] **Step 5: Run the test to verify it passes**
 
 Run: `pytest tests/test_models.py -v`
-Expected: PASS (9 tests)
+Expected: PASS (11 tests)
 
 - [ ] **Step 6: Commit**
 
 ```bash
-git add pyproject.toml src/rcanalyst/__init__.py src/rcanalyst/models.py tests/test_models.py
+git add pyproject.toml .gitignore src/rcanalyst/__init__.py src/rcanalyst/models.py tests/test_models.py
 git commit -m "feat: scaffold project and add shared pydantic models"
 ```
 
@@ -325,8 +390,16 @@ def bound_json(data: Any, max_chars: int = DEFAULT_MAX_CHARS) -> tuple[str, bool
 
     if isinstance(data, dict) and isinstance(data.get("rows"), list):
         rows = data["rows"]
-        kept: list[Any] = []
         remaining = dict(data)
+        remaining["truncated"] = True
+        # Reserve the note's cost BEFORE packing rows, so the final serialization
+        # already fits and is never sliced mid-token (slicing produced invalid JSON).
+        remaining["_truncation_note"] = (
+            f"Response truncated from {len(rows)} rows to stay under {max_chars} "
+            f"chars. Narrow the query (smaller time_range, more specific filter) "
+            f"rather than treating this count as complete."
+        )
+        kept: list[Any] = []
         for row in rows:
             trial = dict(remaining)
             trial["rows"] = kept + [row]
@@ -334,14 +407,7 @@ def bound_json(data: Any, max_chars: int = DEFAULT_MAX_CHARS) -> tuple[str, bool
                 break
             kept.append(row)
         remaining["rows"] = kept
-        remaining["truncated"] = True
-        remaining["_truncation_note"] = (
-            f"Response truncated from {len(rows)} to {len(kept)} rows to stay "
-            f"under {max_chars} chars. Narrow the query (smaller time_range, "
-            f"more specific filter) rather than treating this count as complete."
-        )
-        text = json.dumps(remaining, default=str)
-        return text[:max_chars], True
+        return json.dumps(remaining, default=str), True
 
     note = (
         f'..."_truncation_note": "Response hard-truncated at {max_chars} '
@@ -372,7 +438,7 @@ git commit -m "feat: add tiered response-bounding helper"
 
 **Interfaces:**
 - Consumes: nothing new
-- Produces: `redact_headers(headers: dict, allowlist: set[str] | None = None) -> dict`, `redact_url(url: str) -> str`, `HostNotAllowedError`, `assert_host_allowed(url: str, allowed_hosts: list[str]) -> None`, `safe_encode_param(value: str) -> str` — all in `rcanalyst.security`, used by `analyze_visual_evidence` (Task 6) and `query_generic_source` (Task 7).
+- Produces: `redact_headers(headers: dict, allowlist: set[str] | None = None) -> dict`, `redact_url(url: str) -> str`, `HostNotAllowedError`, `assert_host_allowed(url: str, allowed_hosts: list[str]) -> None`, `safe_encode_param(value: str) -> str`, `assert_url_structure_unchanged(built_url: str, base_url: str) -> None` — all in `rcanalyst.security`, used by `analyze_visual_evidence` (Task 6) and `query_generic_source` (Task 7).
 
 - [ ] **Step 1: Write the failing tests**
 
@@ -382,7 +448,8 @@ git commit -m "feat: add tiered response-bounding helper"
 import pytest
 from rcanalyst.security import (
     redact_headers, redact_url, assert_host_allowed, safe_encode_param,
-    HostNotAllowedError, DEFAULT_HEADER_ALLOWLIST, NEVER_RETURN_HEADERS,
+    assert_url_structure_unchanged, HostNotAllowedError,
+    DEFAULT_HEADER_ALLOWLIST, NEVER_RETURN_HEADERS,
 )
 
 
@@ -423,19 +490,41 @@ def test_safe_encode_param_encodes_normal_value():
     assert safe_encode_param("checkout service") == "checkout%20service"
 
 
-def test_safe_encode_param_rejects_scheme_injection():
-    with pytest.raises(ValueError):
-        safe_encode_param("http://evil.com")
+def test_safe_encode_param_allows_url_valued_query():
+    """Searching logs FOR a URL is a core RCA query and must not be rejected;
+    encoding renders it inert in query-string position."""
+    encoded = safe_encode_param("https://api.example.com/checkout")
+    assert "://" not in encoded
+    assert encoded == "https%3A%2F%2Fapi.example.com%2Fcheckout"
 
 
-def test_safe_encode_param_rejects_path_traversal():
-    with pytest.raises(ValueError):
-        safe_encode_param("../../admin")
+def test_safe_encode_param_allows_dots_in_range_syntax():
+    assert safe_encode_param("latency..500") == "latency..500"
 
 
 def test_safe_encode_param_rejects_protocol_relative():
     with pytest.raises(ValueError):
         safe_encode_param("//attacker.com/steal")
+
+
+def test_assert_url_structure_unchanged_passes_for_same_host():
+    assert_url_structure_unchanged(
+        "https://loki.example.internal/api/q?x=1", "https://loki.example.internal"
+    )
+
+
+def test_assert_url_structure_unchanged_rejects_host_swap():
+    with pytest.raises(HostNotAllowedError):
+        assert_url_structure_unchanged(
+            "https://evil.example.com/api/q", "https://loki.example.internal"
+        )
+
+
+def test_assert_url_structure_unchanged_rejects_scheme_downgrade():
+    with pytest.raises(HostNotAllowedError):
+        assert_url_structure_unchanged(
+            "http://loki.example.internal/api/q", "https://loki.example.internal"
+        )
 ```
 
 - [ ] **Step 2: Run test to verify it fails**
@@ -494,21 +583,41 @@ def assert_host_allowed(url: str, allowed_hosts: list[str]) -> None:
 
 
 def safe_encode_param(value: str) -> str:
-    """URL-encode a param value and reject anything that looks like an attempt
-    to smuggle a scheme/host/path change into a query-template substitution
-    (e.g. 'http://evil.com', '../../admin', '//attacker.com')."""
-    if "://" in value or value.startswith("//") or ".." in value:
+    """Percent-encode a param value for safe substitution into a query template.
+
+    Deliberately does NOT reject values containing '://' or '..': searching logs
+    for a URL ("https://api.example.com/checkout") or an ES range is a core RCA
+    query, and quote(safe="") already renders those inert — an encoded value
+    cannot escape its query-string position. Structural safety is enforced after
+    the URL is built, by assert_url_structure_unchanged().
+    """
+    if value.startswith("//"):
         raise ValueError(
-            f"Param value '{value}' looks like it attempts to redirect the "
-            "request to a different host/path and was rejected."
+            f"Param value '{value}' starts with '//' (protocol-relative) and was rejected."
         )
     return quote(value, safe="")
+
+
+def assert_url_structure_unchanged(built_url: str, base_url: str) -> None:
+    """Confirm a template-built URL still points at the adapter's own host and
+    did not gain a scheme/host/path-prefix change from substituted values."""
+    built = urlparse(built_url)
+    base = urlparse(base_url)
+    if built.scheme != base.scheme or built.hostname != base.hostname or built.port != base.port:
+        raise HostNotAllowedError(
+            f"Built URL '{built_url}' does not match adapter base '{base_url}' "
+            "in scheme/host/port; refusing to send it."
+        )
+    if not built.path.startswith(base.path.rstrip("/")):
+        raise HostNotAllowedError(
+            f"Built URL path '{built.path}' escapes the adapter's base path; refusing to send it."
+        )
 ```
 
 - [ ] **Step 4: Run test to verify it passes**
 
 Run: `pytest tests/test_security.py -v`
-Expected: PASS (10 tests)
+Expected: PASS (13 tests)
 
 - [ ] **Step 5: Commit**
 
@@ -536,7 +645,7 @@ git commit -m "feat: add header redaction and host-allowlist security helpers"
 `tests/test_config.py`:
 
 ```python
-import os
+from pathlib import Path
 import pytest
 from rcanalyst.config import (
     AdapterConfig, AdaptersFile, SurfaceCoverage, TopologyFile,
@@ -609,14 +718,17 @@ def test_resolve_adapter_credential_none_mode_returns_none():
     assert resolve_adapter_credential(adapter) is None
 
 
+REPO_ROOT = Path(__file__).parent.parent
+
+
 def test_example_adapters_file_parses():
-    result = load_adapters("adapters.example.yaml")
+    result = load_adapters(REPO_ROOT / "adapters.example.yaml")
     names = {s.name for s in result.sources}
     assert {"loki", "opensearch", "splunk"} <= names
 
 
 def test_example_topology_file_parses():
-    result = load_topology("topology.example.yaml")
+    result = load_topology(REPO_ROOT / "topology.example.yaml")
     assert "datadog_logs" in result.surfaces
     assert result.surfaces["loki"].blind_to  # non-empty
 ```
@@ -801,7 +913,7 @@ git commit -m "feat: add adapters.yaml/topology.yaml config loading with example
 
 **Interfaces:**
 - Consumes: `CorrelationCandidate`, `CorrelationResult` from `rcanalyst.models` (Task 1)
-- Produces: `correlate_ids(evidence_snippets: list[str]) -> CorrelationResult` in `rcanalyst.tools.correlate_ids`, used by `server.py` (Task 10).
+- Produces: `correlate_ids(evidence_snippets: list[str]) -> CorrelationResult` and `normalize_identifier(value: str) -> list[str]`, plus the module constants `KEY_PATTERNS`, `ASYNC_KEYS`, `DENYLIST`, in `rcanalyst.tools.correlate_ids`. Used by `server.py` (Task 10) and `plan_investigation` (Task 9A).
 
 - [ ] **Step 1: Write the failing tests**
 
@@ -819,7 +931,16 @@ def test_extracts_named_key_request_id():
     assert result.candidates[0].key_name == "x-request-id"
 
 
-def test_denylists_non_discriminative_values():
+def test_denylists_all_zero_uuid():
+    """An all-zero trace id means propagation broke; querying on it returns the
+    whole fleet, which reads as a broad incident. It must never be a candidate."""
+    snippets = ['trace_id=00000000-0000-0000-0000-000000000000 request failed']
+    result = correlate_ids(snippets)
+    assert result.candidates == []
+
+
+def test_short_non_discriminative_values_never_match():
+    """'0'/'null' fall below the {6,} length floor, so they never reach DENYLIST."""
     snippets = ['trace_id=0 request failed', 'trace_id=null also failed']
     result = correlate_ids(snippets)
     assert result.candidates == []
@@ -864,10 +985,13 @@ def test_sync_key_gets_tight_symmetric_window():
 
 
 def test_equivalent_forms_includes_hex_for_numeric_trace_id():
+    """Datadog writes a trace id in decimal; W3C traceparent writes the same id in
+    hex. Without this conversion the two spellings never intersect."""
     snippets = ['x-datadog-trace-id=4823516278365812 svc=checkout']
     result = correlate_ids(snippets)
     c = result.candidates[0]
-    assert any(len(f) > 0 and all(ch in "0123456789abcdef" for ch in f) for f in c.equivalent_forms)
+    assert format(4823516278365812, "x") in c.equivalent_forms
+    assert format(4823516278365812, "032x") in c.equivalent_forms
 
 
 def test_no_matches_returns_empty_candidates():
@@ -919,7 +1043,10 @@ def _extract_ts(snippet: str) -> str | None:
     return m.group(1) if m else None
 
 
-def _normalize(value: str) -> list[str]:
+def normalize_identifier(value: str) -> list[str]:
+    """Return every spelling this identifier may appear under across vendors:
+    dash-stripped, lowercased, and decimal<->hex for numeric/hex trace ids.
+    Public because plan_investigation (Task 9A) reuses it in the other direction."""
     forms = {value, value.lower(), value.replace("-", "").lower()}
     stripped = value.replace("-", "")
     if stripped.isdigit():
@@ -957,7 +1084,7 @@ def correlate_ids(evidence_snippets: list[str]) -> CorrelationResult:
                 if candidate is None:
                     candidate = CorrelationCandidate(
                         value=value, key_name=key_name,
-                        equivalent_forms=_normalize(value),
+                        equivalent_forms=normalize_identifier(value),
                         seen_in_snippets=[], source_systems=[],
                         confidence="low", why_ranked="",
                     )
@@ -997,7 +1124,7 @@ def correlate_ids(evidence_snippets: list[str]) -> CorrelationResult:
 - [ ] **Step 4: Run test to verify it passes**
 
 Run: `pytest tests/test_correlate_ids.py -v`
-Expected: PASS (8 tests)
+Expected: PASS (9 tests)
 
 - [ ] **Step 5: Commit**
 
@@ -1214,7 +1341,7 @@ git commit -m "feat: add analyze_visual_evidence tool with mandatory HAR redacti
 - Test: `tests/test_query_generic_source.py`
 
 **Interfaces:**
-- Consumes: `AdapterConfig` from `rcanalyst.config` (Task 4), `TimeRange`, `GenericQueryResult`, `SourceInfo` from `rcanalyst.models` (Task 1), `assert_host_allowed`, `safe_encode_param`, `HostNotAllowedError` from `rcanalyst.security` (Task 3)
+- Consumes: `AdapterConfig` from `rcanalyst.config` (Task 4), `TimeRange`, `GenericQueryResult`, `SourceInfo` from `rcanalyst.models` (Task 1), `assert_host_allowed`, `safe_encode_param`, `assert_url_structure_unchanged`, `HostNotAllowedError` from `rcanalyst.security` (Task 3), `bound_json` from `rcanalyst.bounding` (Task 2)
 - Produces: `query_generic_source(adapter: AdapterConfig, params: dict, time_range: TimeRange, allowed_hosts: list[str], cursor: str | None = None) -> GenericQueryResult` and `list_generic_sources(adapters: list[AdapterConfig]) -> list[dict]` in `rcanalyst.tools.query_generic_source`, used by `server.py` (Task 10).
 
 - [ ] **Step 1: Write the failing tests**
@@ -1306,14 +1433,28 @@ def test_query_generic_source_rejects_disallowed_host(mock_server):
     assert "not in the configured allowlist" in result.error
 
 
-def test_query_generic_source_rejects_injection_param(mock_server):
+def test_query_generic_source_accepts_url_valued_query(mock_server):
+    """Searching logs FOR a URL must work — the param is encoded, and structural
+    safety is enforced on the built URL, not by banning substrings."""
     adapter = _adapter_for(mock_server)
     result = query_generic_source(
-        adapter=adapter, params={"query": "http://evil.com"},
+        adapter=adapter, params={"query": "https://api.example.com/checkout"},
+        time_range=TimeRange(start="2026-09-15T00:00:00Z", end="2026-09-15T01:00:00Z"),
+        allowed_hosts=["127.0.0.1"],
+    )
+    assert result.error is None
+    assert result.rows == [{"line": "row-1"}]
+
+
+def test_query_generic_source_reports_missing_template_placeholder(mock_server):
+    adapter = _adapter_for(mock_server, query_template="/search?q={query}&team={team}")
+    result = query_generic_source(
+        adapter=adapter, params={"query": "checkout"},  # 'team' not supplied
         time_range=TimeRange(start="2026-09-15T00:00:00Z", end="2026-09-15T01:00:00Z"),
         allowed_hosts=["127.0.0.1"],
     )
     assert result.error is not None
+    assert "placeholder not satisfied" in result.error
 
 
 def test_query_generic_source_respects_max_rows_per_call(mock_server):
@@ -1351,12 +1492,29 @@ import json
 import os
 import urllib.error
 import urllib.request
+from rcanalyst.bounding import bound_json
 from rcanalyst.config import AdapterConfig, resolve_adapter_credential
 from rcanalyst.models import GenericQueryResult, TimeRange
-from rcanalyst.security import assert_host_allowed, safe_encode_param, HostNotAllowedError
+from rcanalyst.security import (
+    assert_host_allowed, safe_encode_param, assert_url_structure_unchanged,
+    HostNotAllowedError,
+)
 
 MAX_RESPONSE_BYTES = 2_000_000
 REQUEST_TIMEOUT_SECONDS = 15
+
+
+class _AllowlistRedirectHandler(urllib.request.HTTPRedirectHandler):
+    """Blocks an off-allowlist redirect BEFORE the new host is contacted.
+    Checking response.geturl() after the fact is too late — the request has
+    already been sent to the redirect target."""
+
+    def __init__(self, allowed_hosts: list[str]) -> None:
+        self.allowed_hosts = allowed_hosts
+
+    def redirect_request(self, req, fp, code, msg, headers, newurl):
+        assert_host_allowed(newurl, self.allowed_hosts)
+        return super().redirect_request(req, fp, code, msg, headers, newurl)
 
 
 def _build_url(adapter: AdapterConfig, params: dict, time_range: TimeRange, cursor: str | None) -> str:
@@ -1406,13 +1564,22 @@ def query_generic_source(
     try:
         assert_host_allowed(adapter.base_url, allowed_hosts)
         url = _build_url(adapter, params, time_range, cursor)
+        assert_url_structure_unchanged(url, adapter.base_url)
         headers = _build_headers(adapter)
+        opener = urllib.request.build_opener(_AllowlistRedirectHandler(allowed_hosts))
         request = urllib.request.Request(url, headers=headers)
-        with urllib.request.urlopen(request, timeout=REQUEST_TIMEOUT_SECONDS) as response:
-            assert_host_allowed(response.geturl(), allowed_hosts)
+        with opener.open(request, timeout=REQUEST_TIMEOUT_SECONDS) as response:
             raw = response.read(MAX_RESPONSE_BYTES + 1)
     except HostNotAllowedError as e:
         return GenericQueryResult(rows=[], truncated=False, returned_count=0, error=str(e))
+    except (KeyError, IndexError) as e:
+        return GenericQueryResult(
+            rows=[], truncated=False, returned_count=0,
+            error=(
+                f"query_template placeholder not satisfied: {e}. Every {{name}} in the "
+                "template must be supplied in params (literal braces must be doubled)."
+            ),
+        )
     except ValueError as e:
         return GenericQueryResult(rows=[], truncated=False, returned_count=0, error=f"Rejected param: {e}")
     except urllib.error.URLError as e:
@@ -1431,11 +1598,20 @@ def query_generic_source(
 
     rows = _extract_rows(payload, adapter.response_path)
     next_cursor = payload.get(adapter.pagination_cursor_field) if adapter.pagination_cursor_field else None
-    truncated = len(rows) > adapter.max_rows_per_call or bool(next_cursor)
+    row_truncated = len(rows) > adapter.max_rows_per_call or bool(next_cursor)
+    capped = rows[: adapter.max_rows_per_call]
+
+    # A row cap alone is not enough — a handful of very large rows can still blow
+    # the host's context, so apply the character bound too.
+    bounded_text, char_truncated = bound_json({
+        "rows": capped, "truncated": row_truncated, "returned_count": len(capped),
+    })
+    bounded = json.loads(bounded_text)
+
     return GenericQueryResult(
-        rows=rows[: adapter.max_rows_per_call],
-        truncated=truncated,
-        returned_count=min(len(rows), adapter.max_rows_per_call),
+        rows=bounded["rows"],
+        truncated=row_truncated or char_truncated,
+        returned_count=len(bounded["rows"]),
         next_cursor=next_cursor,
     )
 
@@ -1455,7 +1631,7 @@ def list_generic_sources(adapters: list[AdapterConfig]) -> list[dict]:
 - [ ] **Step 4: Run test to verify it passes**
 
 Run: `pytest tests/test_query_generic_source.py -v`
-Expected: PASS (6 tests)
+Expected: PASS (7 tests)
 
 - [ ] **Step 5: Commit**
 
@@ -1824,13 +2000,265 @@ def validate_rca(claim_json: dict, investigation_log: list[dict] | None = None) 
 - [ ] **Step 4: Run test to verify it passes**
 
 Run: `pytest tests/test_validate_rca.py -v`
-Expected: PASS (13 tests)
+Expected: PASS (14 tests)
 
 - [ ] **Step 5: Commit**
 
 ```bash
 git add src/rcanalyst/tools/validate_rca.py tests/test_validate_rca.py
 git commit -m "feat: add validate_rca deterministic envelope linter"
+```
+
+---
+
+## Task 9A: `plan_investigation` tool (the bare-identifier entry point)
+
+**Files:**
+- Create: `src/rcanalyst/tools/plan_investigation.py`
+- Test: `tests/test_plan_investigation.py`
+
+**Interfaces:**
+- Consumes: `IdentifierPlan`, `SourceCandidate` from `rcanalyst.models` (Task 1); `normalize_identifier`, `KEY_PATTERNS`, `ASYNC_KEYS` from `rcanalyst.tools.correlate_ids` (Task 5); `AdapterConfig`, `TopologyFile` from `rcanalyst.config` (Task 4)
+- Produces: `plan_investigation(identifier: str, environment: str | None, adapters: list[AdapterConfig], topology: TopologyFile) -> IdentifierPlan` in `rcanalyst.tools.plan_investigation`, used by `server.py` (Task 10).
+
+**Why this exists:** `correlate_ids` takes snippets you have already collected — it
+is useless when a bare id *is* the starting point ("RCA for session abc-123").
+This tool is its front half: same normalization, run in the opposite direction.
+
+- [ ] **Step 1: Write the failing tests**
+
+`tests/test_plan_investigation.py`:
+
+```python
+from rcanalyst.config import AdapterConfig, SurfaceCoverage, TopologyFile
+from rcanalyst.tools.plan_investigation import plan_investigation
+
+
+def _adapters() -> list[AdapterConfig]:
+    return [
+        AdapterConfig(name="loki", base_url="https://loki.x", query_template="/q?q={query}", covers=["k8s_pod"]),
+        AdapterConfig(name="splunk", base_url="https://splunk.x", query_template="/q?q={query}", covers=["generic_service"]),
+    ]
+
+
+def _topology() -> TopologyFile:
+    return TopologyFile(surfaces={
+        "loki": SurfaceCoverage(covers=["k8s_pod"], blind_to=["lambda"]),
+        "cloudwatch": SurfaceCoverage(covers=["lambda"], blind_to=["k8s_pod"]),
+    })
+
+
+def test_classifies_uuid():
+    plan = plan_investigation("3f2504e0-4f89-11d3-9a0c-0305e82c3301", None, [], TopologyFile())
+    assert plan.identifier_kind == "uuid"
+
+
+def test_classifies_w3c_trace():
+    plan = plan_investigation("4bf92f3577b34da6a3ce929d0e0e4736", None, [], TopologyFile())
+    assert plan.identifier_kind == "w3c_trace"
+
+
+def test_classifies_datadog_decimal_trace():
+    plan = plan_investigation("4823516278365812", None, [], TopologyFile())
+    assert plan.identifier_kind == "datadog_decimal_trace"
+
+
+def test_classifies_aws_xray():
+    plan = plan_investigation("1-5759e988-bd862e3fe1be46a994272793", None, [], TopologyFile())
+    assert plan.identifier_kind == "aws_xray"
+
+
+def test_classifies_opaque_session_id():
+    plan = plan_investigation("sess_abc123XYZ", None, [], TopologyFile())
+    assert plan.identifier_kind == "opaque"
+
+
+def test_decimal_trace_offers_hex_equivalent_form():
+    plan = plan_investigation("4823516278365812", None, [], TopologyFile())
+    assert format(4823516278365812, "x") in plan.equivalent_forms
+
+
+def test_suggests_key_names_to_search():
+    plan = plan_investigation("3f2504e0-4f89-11d3-9a0c-0305e82c3301", None, [], TopologyFile())
+    assert "x-request-id" in plan.likely_key_names
+    assert "trace_id" in plan.likely_key_names
+
+
+def test_lists_configured_adapters_as_queryable():
+    plan = plan_investigation("sess_abc123XYZ", None, _adapters(), TopologyFile())
+    names = {s.name for s in plan.queryable_sources if s.kind == "configured_adapter"}
+    assert names == {"loki", "splunk"}
+
+
+def test_lists_coverage_surfaces_as_queryable():
+    plan = plan_investigation("sess_abc123XYZ", None, [], _topology())
+    names = {s.name for s in plan.queryable_sources if s.kind == "coverage_surface"}
+    assert names == {"loki", "cloudwatch"}
+
+
+def test_no_sources_configured_flags_unknown_coverage():
+    plan = plan_investigation("sess_abc123XYZ", None, [], TopologyFile())
+    assert plan.unknown_coverage is True
+    assert any("no configured sources" in step.lower() for step in plan.next_steps)
+
+
+def test_async_shaped_identifier_widens_window_hint():
+    plan = plan_investigation("msg-00ab12cd34ef", None, [], TopologyFile())
+    assert plan.is_async_shaped is True
+    assert "60" in plan.suggested_window_hint
+
+
+def test_sync_identifier_keeps_tight_window_hint():
+    plan = plan_investigation("3f2504e0-4f89-11d3-9a0c-0305e82c3301", None, [], TopologyFile())
+    assert plan.is_async_shaped is False
+    assert "2" in plan.suggested_window_hint
+
+
+def test_next_steps_mention_correlate_ids_handoff():
+    plan = plan_investigation("sess_abc123XYZ", None, _adapters(), TopologyFile())
+    assert any("correlate_ids" in step for step in plan.next_steps)
+
+
+def test_environment_echoed_into_next_steps_when_given():
+    plan = plan_investigation("sess_abc123XYZ", "staging", _adapters(), TopologyFile())
+    assert any("staging" in step for step in plan.next_steps)
+
+
+def test_environment_missing_prompts_for_it():
+    plan = plan_investigation("sess_abc123XYZ", None, _adapters(), TopologyFile())
+    assert any("environment" in step.lower() for step in plan.next_steps)
+```
+
+- [ ] **Step 2: Run test to verify it fails**
+
+Run: `pytest tests/test_plan_investigation.py -v`
+Expected: FAIL with `ModuleNotFoundError: No module named 'rcanalyst.tools.plan_investigation'`
+
+- [ ] **Step 3: Implement plan_investigation.py**
+
+`src/rcanalyst/tools/plan_investigation.py`:
+
+```python
+from __future__ import annotations
+import re
+from rcanalyst.config import AdapterConfig, TopologyFile
+from rcanalyst.models import IdentifierPlan, SourceCandidate
+from rcanalyst.tools.correlate_ids import ASYNC_KEYS, KEY_PATTERNS, normalize_identifier
+
+_UUID = re.compile(r"^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$", re.IGNORECASE)
+_W3C_TRACE = re.compile(r"^[0-9a-f]{32}$", re.IGNORECASE)
+_AWS_XRAY = re.compile(r"^1-[0-9a-f]{8}-[0-9a-f]{24}$", re.IGNORECASE)
+_DECIMAL = re.compile(r"^\d{6,20}$")
+
+# Substrings that mark an identifier as belonging to an async/queued flow, where
+# the consumer's log can trail the producer's by tens of minutes.
+_ASYNC_MARKERS = ("msg", "message", "job", "task", "event", "batch", "delivery")
+
+SYNC_WINDOW_HINT = "+/- 2 minutes around the identifier's first sighting"
+ASYNC_WINDOW_HINT = (
+    "first sighting - 5 minutes to first sighting + 60 minutes (forward-widened: "
+    "a lagging consumer's log trails the producer's, and a tight window reads as "
+    "'never consumed' when the truth is 'not consumed yet')"
+)
+
+
+def _classify(identifier: str) -> str:
+    if _UUID.match(identifier):
+        return "uuid"
+    if _AWS_XRAY.match(identifier):
+        return "aws_xray"
+    if _W3C_TRACE.match(identifier):
+        return "w3c_trace"
+    if _DECIMAL.match(identifier):
+        return "datadog_decimal_trace"
+    return "opaque"
+
+
+def _is_async_shaped(identifier: str) -> bool:
+    lowered = identifier.lower()
+    return any(marker in lowered for marker in _ASYNC_MARKERS)
+
+
+def plan_investigation(
+    identifier: str,
+    environment: str | None,
+    adapters: list[AdapterConfig],
+    topology: TopologyFile,
+) -> IdentifierPlan:
+    kind = _classify(identifier)
+    is_async = _is_async_shaped(identifier)
+
+    sources: list[SourceCandidate] = [
+        SourceCandidate(
+            name=a.name, kind="configured_adapter", covers=a.covers,
+            note="query via query_generic_source",
+        )
+        for a in adapters
+    ]
+    for name, surface in topology.surfaces.items():
+        sources.append(SourceCandidate(
+            name=name, kind="coverage_surface", covers=surface.covers,
+            note=surface.coverage_note,
+        ))
+
+    next_steps: list[str] = []
+    if environment:
+        next_steps.append(
+            f"Scope every query to environment '{environment}' — a wrong-environment "
+            "hit produces a confident, silently wrong RCA."
+        )
+    else:
+        next_steps.append(
+            "Confirm the environment (prod/staging/...) before querying — ask the user "
+            "if it is not stated. Do not let a vendor tool's default org decide it."
+        )
+
+    if not sources:
+        next_steps.append(
+            "No configured sources and no topology entries: query whatever vendor MCP "
+            "tools this session has connected, and treat any empty result as unknown "
+            "coverage rather than as absence."
+        )
+    else:
+        next_steps.append(
+            "Query the sources above for this identifier and each of its "
+            "equivalent_forms — vendors spell the same id differently."
+        )
+
+    next_steps.append(
+        "Feed the log snippets you get back into correlate_ids to find which "
+        "identifiers actually co-occur across services, then follow those."
+    )
+    if is_async:
+        next_steps.append(
+            "This id looks async: if the consumer side comes back empty, widen the "
+            "window before concluding the message was never processed."
+        )
+
+    return IdentifierPlan(
+        identifier=identifier,
+        identifier_kind=kind,
+        equivalent_forms=normalize_identifier(identifier),
+        likely_key_names=sorted(KEY_PATTERNS.keys()) if not is_async
+        else sorted(set(KEY_PATTERNS.keys()) | ASYNC_KEYS),
+        is_async_shaped=is_async,
+        suggested_window_hint=ASYNC_WINDOW_HINT if is_async else SYNC_WINDOW_HINT,
+        queryable_sources=sources,
+        unknown_coverage=not sources,
+        next_steps=next_steps,
+    )
+```
+
+- [ ] **Step 4: Run test to verify it passes**
+
+Run: `pytest tests/test_plan_investigation.py -v`
+Expected: PASS (15 tests)
+
+- [ ] **Step 5: Commit**
+
+```bash
+git add src/rcanalyst/tools/plan_investigation.py tests/test_plan_investigation.py
+git commit -m "feat: add plan_investigation tool for bare-identifier RCA entry point"
 ```
 
 ---
@@ -1842,8 +2270,8 @@ git commit -m "feat: add validate_rca deterministic envelope linter"
 - Test: `tests/test_server.py`
 
 **Interfaces:**
-- Consumes: all tool functions from Tasks 5–9, `load_adapters`/`load_topology` from `rcanalyst.config` (Task 4)
-- Produces: the `mcp` `FastMCP` instance and registered tools `correlate_ids`, `analyze_visual_evidence`, `query_generic_source`, `list_generic_sources`, `get_coverage`, `validate_rca`; the `main()` entrypoint referenced by `pyproject.toml`'s `[project.scripts]`.
+- Consumes: all tool functions from Tasks 5–9A, `load_adapters`/`load_topology` from `rcanalyst.config` (Task 4)
+- Produces: the `mcp` `FastMCP` instance and seven registered tools — `plan_investigation`, `correlate_ids`, `analyze_visual_evidence`, `query_generic_source`, `list_generic_sources`, `get_coverage`, `validate_rca` — plus the `main()` entrypoint referenced by `pyproject.toml`'s `[project.scripts]`.
 
 - [ ] **Step 1: Write the failing test**
 
@@ -1860,6 +2288,7 @@ def test_all_expected_tools_are_registered():
     assert names == {
         "correlate_ids", "analyze_visual_evidence", "query_generic_source",
         "list_generic_sources", "get_coverage", "validate_rca",
+        "plan_investigation",
     }
 
 
@@ -1885,8 +2314,10 @@ Expected: FAIL with `ModuleNotFoundError: No module named 'rcanalyst.server'`
 ```python
 from __future__ import annotations
 import logging
+import os
 import sys
 from pathlib import Path
+from typing import Any
 from urllib.parse import urlparse
 
 logging.basicConfig(stream=sys.stderr, level=logging.INFO)
@@ -1903,6 +2334,7 @@ from rcanalyst.tools.query_generic_source import (  # noqa: E402
     list_generic_sources as _list_generic_sources,
 )
 from rcanalyst.tools.get_coverage import get_coverage as _get_coverage  # noqa: E402
+from rcanalyst.tools.plan_investigation import plan_investigation as _plan_investigation  # noqa: E402
 from rcanalyst.tools.validate_rca import validate_rca as _validate_rca  # noqa: E402
 
 INSTRUCTIONS = (
@@ -1911,12 +2343,24 @@ INSTRUCTIONS = (
     "read the rca-methodology skill/prompt before using these tools. Prefer "
     "your own already-connected vendor MCP (Datadog, Splunk, GitLab, "
     "Sourcegraph, etc.) for logs, metrics, and code; use query_generic_source "
-    "ONLY when no such vendor MCP covers the source in question. Call "
-    "validate_rca before finalizing any RCA."
+    "ONLY when no such vendor MCP covers the source in question. "
+    "Starting from a bare identifier (session/request/trace id) with no logs "
+    "yet? Call plan_investigation first. Already holding log snippets? Use "
+    "correlate_ids. Finish by calling validate_rca, and emit the envelope "
+    "fenced between BEGIN_RCANALYST_RESULT_JSON and END_RCANALYST_RESULT_JSON."
 )
 
-ADAPTERS_PATH = Path.cwd() / "adapters.yaml"
-TOPOLOGY_PATH = Path.cwd() / "topology.yaml"
+# An MCP server launched as a subprocess by Claude Desktop/Code inherits an
+# unpredictable cwd (often "/"), so cwd-relative config would silently never
+# resolve. RCANALYST_CONFIG_DIR is the documented knob; CLAUDE_PROJECT_DIR is
+# injected by Claude Code and is the sensible default for plugin installs.
+_CONFIG_DIR = Path(
+    os.environ.get("RCANALYST_CONFIG_DIR")
+    or os.environ.get("CLAUDE_PROJECT_DIR")
+    or Path.cwd()
+)
+ADAPTERS_PATH = _CONFIG_DIR / "adapters.yaml"
+TOPOLOGY_PATH = _CONFIG_DIR / "topology.yaml"
 
 mcp = FastMCP("rcanalyst", instructions=INSTRUCTIONS)
 
@@ -1939,6 +2383,20 @@ def correlate_ids(evidence_snippets: list[str]) -> dict:
 
 
 @mcp.tool()
+def plan_investigation(identifier: str, environment: str | None = None) -> dict:
+    """START HERE when the user hands you a bare identifier — a session id,
+    request id, trace id, or correlation id — with no logs yet. Classifies the
+    identifier's shape, returns every vendor spelling it may appear under, names
+    which configured sources and coverage surfaces can answer for it, and
+    suggests a time window (widened when the id looks async). Use correlate_ids
+    instead once you already have log snippets in hand."""
+    return _plan_investigation(
+        identifier=identifier, environment=environment,
+        adapters=_adapters().sources, topology=load_topology(TOPOLOGY_PATH),
+    ).model_dump()
+
+
+@mcp.tool()
 def analyze_visual_evidence(
     context: str,
     image_base64: str | None = None,
@@ -1946,10 +2404,14 @@ def analyze_visual_evidence(
     har_path: str | None = None,
     slow_threshold_ms: float = 1000,
 ) -> dict:
-    """Extract structured evidence from a UI screenshot and/or a HAR/network-tab
-    export. HAR data is redacted (headers allowlisted, bodies never returned).
-    The raw image is passed through unmodified for your own multimodal
-    reasoning — this tool runs no vision model of its own."""
+    """Extract structured evidence from a HAR / browser network-tab export:
+    failed and slow requests, with correlation headers, redacted.
+
+    If you already have a screenshot in your own context, reason about it
+    directly — do NOT pass it here. The image_base64 parameter returns the image
+    unchanged (this tool runs no vision model), so round-tripping one you can
+    already see just puts a second copy in your context. Pass it only if you
+    need the image echoed back alongside HAR findings."""
     return _analyze_visual_evidence(
         context=context, image_base64=image_base64, har_json=har_json,
         har_path=har_path, slow_threshold_ms=slow_threshold_ms,
@@ -1957,7 +2419,7 @@ def analyze_visual_evidence(
 
 
 @mcp.tool()
-def query_generic_source(source: str, params: dict, start: str, end: str, cursor: str | None = None) -> dict:
+def query_generic_source(source: str, params: dict[str, Any], start: str, end: str, cursor: str | None = None) -> dict:
     """Query a source declared in adapters.yaml via a config-templated REST
     call. Use ONLY when no vendor MCP (Datadog/Splunk/Loki/etc.) already
     covers this source — prefer your own connected MCPs first."""
@@ -1987,10 +2449,11 @@ def get_coverage(resource_type: str) -> dict:
 
 
 @mcp.tool()
-def validate_rca(claim_json: dict, investigation_log: list[dict] | None = None) -> dict:
-    """Deterministically lint a draft RCA's structured claim before you post
-    it. Call this before finalizing any RCA — on Claude Code a Stop hook
-    re-runs this check regardless."""
+def validate_rca(claim_json: dict[str, Any], investigation_log: list[dict[str, Any]] | None = None) -> dict:
+    """Deterministically lint a draft RCA's structured claim before you post it.
+    Call this before finalizing any RCA, and emit the envelope fenced between
+    BEGIN_RCANALYST_RESULT_JSON and END_RCANALYST_RESULT_JSON — on Claude Code a
+    Stop hook re-runs this check against that block regardless."""
     return _validate_rca(claim_json, investigation_log or []).model_dump()
 
 
@@ -2034,9 +2497,11 @@ git commit -m "feat: wire all tools into MCP server with stdio/HTTP transports"
 
 - [ ] **Step 1: Write the skill content**
 
-`skills/rca-methodology/SKILL.md`:
+`skills/rca-methodology/SKILL.md` (written with a four-backtick fence here because
+the file's own content contains a fenced block — write the file with the inner
+three-backtick fences intact):
 
-```markdown
+````markdown
 ---
 name: rca-methodology
 description: Use when investigating a production incident, alert, or bug report with rcAnalyst's tools — encodes the investigation discipline that turns tool calls into a trustworthy root-cause analysis.
@@ -2046,12 +2511,38 @@ description: Use when investigating a production incident, alert, or bug report 
 
 You are investigating a production incident. You have your own connected MCP
 tools (Datadog, Splunk, Loki, GitLab, Sourcegraph, PagerDuty, or whatever your
-session has) plus rcAnalyst's tools: `correlate_ids`, `analyze_visual_evidence`,
-`query_generic_source`, `list_generic_sources`, `get_coverage`, `validate_rca`.
+session has) plus rcAnalyst's tools: `plan_investigation`, `correlate_ids`,
+`analyze_visual_evidence`, `query_generic_source`, `list_generic_sources`,
+`get_coverage`, `validate_rca`.
 
 rcAnalyst has no orchestration logic of its own — you decide what to query,
 how deep to go, and when to stop. rcAnalyst's tools are building blocks and a
 final lint gate, not a substitute for your own judgment.
+
+## Where to start, by what you were given
+
+**A question in plain language** ("why is checkout 500ing in prod since 10am").
+This is the most common case. Establish the environment and the time window,
+then go straight to your own connected log/APM tools for the named service.
+rcAnalyst contributes the discipline below and the final gate — it has no
+"search everything" tool, by design, because your vendor MCPs already do that
+better with your own credentials.
+
+**A bare identifier** (session id, request id, trace id) with no logs yet. Call
+`plan_investigation(identifier, environment)`. It tells you what kind of id it
+is, every spelling it may appear under (vendors differ: Datadog writes a trace
+id in decimal, W3C in hex), which of your sources can answer for it, and how
+wide a window to use. Do not call `correlate_ids` here — that tool needs
+snippets you have not collected yet.
+
+**A screenshot.** Reason about it directly; you can already see it. Extract the
+failing URL, status code, and any visible id, then treat those as the starting
+evidence. Do not pass the image to `analyze_visual_evidence` — that returns it
+unchanged and just duplicates it in your context.
+
+**A HAR / network-tab export.** Call `analyze_visual_evidence(har_path=...)`.
+It returns only the failed and slow requests, with correlation headers, safely
+redacted — the fastest path from "the UI is broken" to a backend trace id.
 
 ## Before you start
 
@@ -2161,11 +2652,36 @@ full `strong_evidence` answer, not a weaker one.
 
 Write the RCA with: a one-sentence TL;DR (terminal cause, service, when it
 crossed threshold), an Evidence section (each row inside the `alert_window`),
-Recommendations (verb-first, ≤3), and the structured envelope fields
-`validate_rca` checks (`confidence`, `status`, `root_cause`,
-`affected_services`, `environment`, `alert_window`, `evidence`, `hop_trace`,
-and `decomposed_by` when a metric is cited).
+and Recommendations (verb-first, ≤3).
+
+Then, as the **last thing in your turn, every time** — success, partial, or
+inconclusive — emit the structured envelope fenced with these exact sentinels:
+
 ```
+BEGIN_RCANALYST_RESULT_JSON
+{
+  "confidence": "strong_evidence|partial_evidence|inconclusive",
+  "status": "success|partial|inconclusive",
+  "root_cause": "one-line summary",
+  "affected_services": ["svc1"],
+  "environment": "prod",
+  "alert_window": {"start": "ISO8601", "end": "ISO8601"},
+  "evidence": [
+    {"timestamp": "ISO8601", "text": "exception or metric value",
+     "source_ref": "file:line or surface", "environment": "prod"}
+  ],
+  "hop_trace": {"hop_count": 2, "stop_reason": "terminal|vendor_boundary|hop_cap_reached"},
+  "decomposed_by": "tenant_id"
+}
+END_RCANALYST_RESULT_JSON
+```
+
+The sentinels are not decoration: on Claude Code a Stop hook greps for exactly
+this block and re-runs `validate_rca` against it before your turn is allowed to
+end. A turn that ends on narration with no envelope is the single most common
+way an investigation's work gets thrown away. Omit `decomposed_by` only when no
+metric is cited; include every other key.
+````
 
 - [ ] **Step 2: Commit**
 
@@ -2200,60 +2716,81 @@ from pathlib import Path
 HOOK_PATH = Path(__file__).parent.parent / "hooks" / "stop_validate.py"
 
 
-def _run_hook(transcript_path: str) -> dict:
-    payload = json.dumps({"transcript_path": transcript_path})
+VALID_ENVELOPE = {
+    "confidence": "strong_evidence", "status": "success",
+    "root_cause": "db timeout", "affected_services": ["svc"],
+    "environment": "prod",
+    "alert_window": {"start": "2026-09-15T10:00:00Z", "end": "2026-09-15T10:10:00Z"},
+    "evidence": [
+        {"timestamp": "2026-09-15T10:05:00Z", "text": "conn pool exhausted", "source_ref": "svc/db.go:1", "environment": "prod"},
+        {"timestamp": "2026-09-15T10:05:01Z", "text": "500 to caller", "source_ref": "svc/handler.go:2", "environment": "prod"},
+    ],
+    "hop_trace": {"hop_count": 1, "stop_reason": "terminal"},
+}
+
+
+def _run_hook(payload: dict) -> dict:
     result = subprocess.run(
-        [sys.executable, str(HOOK_PATH)], input=payload, capture_output=True, text=True,
+        [sys.executable, str(HOOK_PATH)], input=json.dumps(payload),
+        capture_output=True, text=True,
     )
-    assert result.returncode == 0
+    assert result.returncode == 0, result.stderr
     return json.loads(result.stdout) if result.stdout.strip() else {}
 
 
-def _write_transcript(tmp_path, assistant_text: str) -> str:
-    p = tmp_path / "transcript.jsonl"
-    entry = {"type": "assistant", "message": {"content": [{"type": "text", "text": assistant_text}]}}
-    p.write_text(json.dumps(entry) + "\n")
-    return str(p)
+def _fenced(envelope_text: str) -> str:
+    return (
+        "## RCA\nsome prose\n"
+        f"BEGIN_RCANALYST_RESULT_JSON\n{envelope_text}\nEND_RCANALYST_RESULT_JSON"
+    )
 
 
-def test_no_envelope_does_not_block(tmp_path):
-    path = _write_transcript(tmp_path, "Just a normal reply with no RCA in it.")
-    out = _run_hook(path)
+def test_no_envelope_does_not_block():
+    out = _run_hook({"last_assistant_message": "Just a normal reply with no RCA in it."})
     assert out == {}
 
 
-def test_valid_envelope_does_not_block(tmp_path):
-    envelope = {
-        "confidence": "strong_evidence", "status": "success",
-        "root_cause": "db timeout", "affected_services": ["svc"],
-        "environment": "prod",
-        "alert_window": {"start": "2026-09-15T10:00:00Z", "end": "2026-09-15T10:10:00Z"},
-        "evidence": [
-            {"timestamp": "2026-09-15T10:05:00Z", "text": "conn pool exhausted", "source_ref": "svc/db.go:1", "environment": "prod"},
-            {"timestamp": "2026-09-15T10:05:01Z", "text": "500 to caller", "source_ref": "svc/handler.go:2", "environment": "prod"},
-        ],
-        "hop_trace": {"hop_count": 1, "stop_reason": "terminal"},
-    }
-    text = f"## RCA\nsome prose\nBEGIN_DEBUGIQ_RESULT_JSON\n{json.dumps(envelope)}\nEND_DEBUGIQ_RESULT_JSON"
-    path = _write_transcript(tmp_path, text)
-    out = _run_hook(path)
+def test_valid_envelope_does_not_block():
+    out = _run_hook({"last_assistant_message": _fenced(json.dumps(VALID_ENVELOPE))})
     assert out == {}
 
 
-def test_invalid_envelope_blocks(tmp_path):
-    envelope = {"confidence": "strong_evidence", "status": "success", "root_cause": "x", "affected_services": ["svc"], "environment": "prod"}
-    text = f"BEGIN_DEBUGIQ_RESULT_JSON\n{json.dumps(envelope)}\nEND_DEBUGIQ_RESULT_JSON"
-    path = _write_transcript(tmp_path, text)
-    out = _run_hook(path)
+def test_invalid_envelope_blocks():
+    bad = {"confidence": "strong_evidence", "status": "success", "root_cause": "x",
+           "affected_services": ["svc"], "environment": "prod"}
+    out = _run_hook({"last_assistant_message": _fenced(json.dumps(bad))})
     assert out.get("decision") == "block"
     assert "reason" in out
 
 
-def test_malformed_json_envelope_blocks(tmp_path):
-    text = "BEGIN_DEBUGIQ_RESULT_JSON\n{not valid json\nEND_DEBUGIQ_RESULT_JSON"
-    path = _write_transcript(tmp_path, text)
-    out = _run_hook(path)
+def test_malformed_json_envelope_blocks():
+    out = _run_hook({"last_assistant_message": _fenced("{not valid json")})
     assert out.get("decision") == "block"
+
+
+def test_stop_hook_active_short_circuits():
+    """Without this guard a blocking hook re-fires forever."""
+    bad = {"confidence": "strong_evidence"}
+    out = _run_hook({
+        "last_assistant_message": _fenced(json.dumps(bad)),
+        "stop_hook_active": True,
+    })
+    assert out == {}
+
+
+def test_falls_back_to_transcript_when_no_last_assistant_message(tmp_path):
+    p = tmp_path / "transcript.jsonl"
+    entry = {"type": "assistant", "message": {"content": [
+        {"type": "text", "text": _fenced(json.dumps(VALID_ENVELOPE))}
+    ]}}
+    p.write_text(json.dumps(entry) + "\n")
+    out = _run_hook({"transcript_path": str(p)})
+    assert out == {}
+
+
+def test_no_input_at_all_does_not_block():
+    out = _run_hook({})
+    assert out == {}
 ```
 
 - [ ] **Step 2: Run test to verify it fails**
@@ -2272,16 +2809,37 @@ Expected: FAIL — `hooks/stop_validate.py` does not exist yet
   "description": "Generic, credential-free RCA investigation tools and methodology, composing with whatever vendor MCPs are already connected.",
   "mcpServers": {
     "rcanalyst": {
-      "command": "uvx",
-      "args": ["rcanalyst"]
+      "command": "uv",
+      "args": ["run", "--directory", "${CLAUDE_PLUGIN_ROOT}", "rcanalyst"],
+      "env": { "RCANALYST_CONFIG_DIR": "${CLAUDE_PROJECT_DIR}" }
     }
   },
-  "skills": ["skills/rca-methodology"],
   "hooks": {
-    "Stop": ["hooks/stop_validate.py"]
+    "hooks": {
+      "Stop": [
+        {
+          "hooks": [
+            {
+              "type": "command",
+              "command": "python3 ${CLAUDE_PLUGIN_ROOT}/hooks/stop_validate.py",
+              "timeout": 30
+            }
+          ]
+        }
+      ]
+    }
   }
 }
 ```
+
+Three things here are easy to get wrong and are all deliberate:
+- `hooks` takes the **full hook-config object** (`{"hooks": {"<Event>": [{"hooks": [...]}]}}`),
+  not `{"Stop": ["path.py"]}`. Stop supports no `matcher`, so none is set.
+- There is no `skills` key — `skills/rca-methodology/SKILL.md` is auto-discovered from the
+  plugin's `skills/` directory.
+- `${CLAUDE_PLUGIN_ROOT}` and `${CLAUDE_PROJECT_DIR}` are required; bare relative paths do
+  not resolve for a plugin-launched stdio server. `uvx rcanalyst` would resolve from the
+  package index and cannot run this unpublished, plugin-local package.
 
 `hooks/stop_validate.py`:
 
@@ -2290,8 +2848,10 @@ Expected: FAIL — `hooks/stop_validate.py` does not exist yet
 """Claude Code Stop hook: validates the just-finished turn's RCA envelope
 against rcanalyst's validate_rca gates before allowing the session to stop.
 
-Input: JSON on stdin per Claude Code's Stop hook contract, including
-`transcript_path` (a JSONL file of the conversation).
+Input: JSON on stdin per Claude Code's Stop hook contract. Prefers
+`last_assistant_message`; falls back to walking `transcript_path` (that file is
+written asynchronously and can lag the current turn, so it is the fallback, not
+the primary source).
 Output: on a blocking gap, prints {"decision": "block", "reason": "..."} to
 stdout. If no RCA envelope is present in the last assistant turn at all, this
 hook does not block — an ordinary non-RCA turn is not forced to emit one.
@@ -2305,8 +2865,11 @@ sys.path.insert(0, str(Path(__file__).parent.parent / "src"))
 
 from rcanalyst.tools.validate_rca import validate_rca  # noqa: E402
 
-ENVELOPE_PATTERN = re.compile(
-    r"BEGIN_DEBUGIQ_RESULT_JSON\s*(\{.*?\})\s*END_DEBUGIQ_RESULT_JSON", re.DOTALL
+# Match the fenced block first, then parse what's inside it. A single regex that
+# also had to match balanced JSON would silently fail to match malformed JSON —
+# which is exactly the case that most needs to be reported.
+BLOCK_PATTERN = re.compile(
+    r"BEGIN_RCANALYST_RESULT_JSON(.*?)END_RCANALYST_RESULT_JSON", re.DOTALL
 )
 
 
@@ -2331,20 +2894,24 @@ def _last_assistant_text(transcript_path: str) -> str | None:
 def main() -> None:
     raw_stdin = sys.stdin.read() or "{}"
     payload = json.loads(raw_stdin)
-    transcript_path = payload.get("transcript_path")
-    if not transcript_path:
+
+    # Without this guard, a blocking verdict re-triggers this hook forever.
+    if payload.get("stop_hook_active"):
         return
 
-    text = _last_assistant_text(transcript_path)
+    text = payload.get("last_assistant_message")
+    if not text:
+        transcript_path = payload.get("transcript_path")
+        text = _last_assistant_text(transcript_path) if transcript_path else None
     if not text:
         return
 
-    match = ENVELOPE_PATTERN.search(text)
+    match = BLOCK_PATTERN.search(text)
     if not match:
         return
 
     try:
-        claim_json = json.loads(match.group(1))
+        claim_json = json.loads(match.group(1).strip())
     except json.JSONDecodeError:
         print(json.dumps({
             "decision": "block",
@@ -2365,7 +2932,7 @@ if __name__ == "__main__":
 - [ ] **Step 4: Run test to verify it passes**
 
 Run: `chmod +x hooks/stop_validate.py && pytest tests/test_stop_validate.py -v`
-Expected: PASS (4 tests)
+Expected: PASS (7 tests)
 
 - [ ] **Step 5: Commit**
 
@@ -2387,9 +2954,10 @@ git commit -m "feat: add Claude Code plugin bundle with Stop-hook RCA validation
 
 - [ ] **Step 1: Write the README**
 
-`README.md`:
+`README.md` (four-backtick fence here because the file contains its own fenced
+blocks — write the file with the inner three-backtick fences intact):
 
-```markdown
+````markdown
 # rcAnalyst
 
 A generic, credential-free MCP server that gives any Claude session
@@ -2412,8 +2980,12 @@ you already have connected.
 
 ## Install
 
+`rcanalyst` is not published to PyPI — run it from a local checkout. `uvx
+rcanalyst` will NOT work (it resolves from the package index).
+
 ```bash
-uvx rcanalyst
+git clone <this repo> ~/rcAnalyst
+uv run --directory ~/rcAnalyst rcanalyst --help
 ```
 
 ### Claude Code (recommended — gets enforcement)
@@ -2423,17 +2995,22 @@ Install as a plugin (bundles the MCP server, the rca-methodology skill, and a
 produced, before the turn can end):
 
 ```bash
-claude plugin install /path/to/rcAnalyst
+claude plugin install ~/rcAnalyst
 ```
 
 ### Claude Desktop / other MCP hosts
 
-Add to your MCP config (e.g. `claude_desktop_config.json`):
+Add to your MCP config (e.g. `claude_desktop_config.json`), using an absolute
+path — a `uv run --directory` invocation, not `uvx`:
 
 ```json
 {
   "mcpServers": {
-    "rcanalyst": { "command": "uvx", "args": ["rcanalyst"] }
+    "rcanalyst": {
+      "command": "uv",
+      "args": ["run", "--directory", "/absolute/path/to/rcAnalyst", "rcanalyst"],
+      "env": { "RCANALYST_CONFIG_DIR": "/absolute/path/to/your/config/dir" }
+    }
   }
 }
 ```
@@ -2449,7 +3026,7 @@ tradeoff, not parity with the Claude Code experience.
 Run with the HTTP transport and register it as a remote MCP server:
 
 ```bash
-rcanalyst --http
+uv run --directory /absolute/path/to/rcAnalyst rcanalyst --http
 ```
 
 ## Configure your own sources (optional)
@@ -2467,25 +3044,61 @@ cp topology.example.yaml topology.yaml
 # coverage facts, add your own resource types as needed.
 ```
 
+Both files are read from `RCANALYST_CONFIG_DIR` (falling back to
+`CLAUDE_PROJECT_DIR`, then the process cwd). Set it explicitly — an MCP server
+launched by a desktop host inherits an unpredictable working directory, so
+relying on cwd usually means your config is silently never found.
+
+## How you actually use it
+
+**Ask a question.** The common case. You already have your vendor MCPs
+connected; rcAnalyst supplies the method and the final check.
+
+> "Why is checkout 500ing in prod since 10am?"
+
+Claude establishes the environment and window, queries your own Datadog/Splunk/
+Loki tools, applies the five rules from the bundled methodology, and calls
+`validate_rca` on its own draft before answering.
+
+**Start from an identifier.** A session id, request id, or trace id and nothing
+else.
+
+> "RCA for session sess_abc123XYZ"
+
+Claude calls `plan_investigation`, which classifies the id, lists every vendor
+spelling it may appear under, names which sources can answer for it, and sets
+the right time window — then fans out across your connected tools.
+
+**Start from a screenshot.** Paste it. Claude reads it directly (it is
+multimodal), pulls the failing URL/status/timestamp out of the image, and goes
+from there. There is no tool call needed for this and you should not make one.
+
+**Start from a HAR.** Export the browser's Network tab, then:
+
+> "Run analyze_visual_evidence on ~/Downloads/checkout.har"
+
+You get back only the failed and slow requests with their correlation headers,
+redacted — the fastest path from "the UI is broken" to a backend trace id.
+
 ## 5-minute first run (zero vendor MCPs required)
 
 1. Install rcAnalyst as above — no other MCP needed for this walkthrough.
-2. In your Claude session, export your browser's Network tab as a HAR file
-   for the failing request.
+2. Export your browser's Network tab as a HAR for the failing request.
 3. Ask Claude: "use analyze_visual_evidence on this HAR to find what failed."
-4. Copy the returned correlation headers/request id into `correlate_ids` if
-   you have more log snippets to tie together.
-5. If you have an in-house log API, add it to `adapters.yaml` and ask Claude
-   to `query_generic_source` it with the request id.
-6. Ask Claude to write the RCA and call `validate_rca` on its own draft
-   before it finalizes.
+4. Feed the returned correlation headers/request id into `correlate_ids` if you
+   have more log snippets to tie together.
+5. If you have an in-house log API, add it to `adapters.yaml` and ask Claude to
+   `query_generic_source` it with the request id.
+6. Ask Claude to write the RCA — it calls `validate_rca` on its own draft and
+   emits a fenced `BEGIN_RCANALYST_RESULT_JSON` envelope before finalizing.
 
 ## Tools
 
 | Tool | Purpose |
 |---|---|
+| `plan_investigation` | Start here from a bare session/request/trace id: classifies it, gives every vendor spelling, names which sources can answer, sets the window |
 | `correlate_ids` | Extract & rank correlation IDs across log snippets you've already collected, including async (message/job id) hops |
-| `analyze_visual_evidence` | Parse a HAR/network-tab export (redacted) and/or pass a screenshot through for your own multimodal reasoning |
+| `analyze_visual_evidence` | Parse a HAR/network-tab export (redacted). Not needed for screenshots — read those directly |
 | `query_generic_source` | Config-templated REST query for a backend with no dedicated MCP — use only as a last resort |
 | `list_generic_sources` | List what's declared in `adapters.yaml` |
 | `get_coverage` | Look up whether a surface covers/is blind to a resource type, from `topology.yaml` |
@@ -2500,9 +3113,13 @@ cp topology.example.yaml topology.yaml
   single-message size ceiling most MCP transports impose, on large
   screenshots.
 - `validate_rca`'s `investigation_log` is self-reported by the host, not
-  independently observed — unlike DebugIQ's server-side sub-agent spawns, a
-  fabricated log cannot be caught here.
-```
+  independently observed — a fabricated log cannot be caught here.
+- Enforcement is only non-optional on Claude Code (via the plugin's `Stop`
+  hook). On Claude Desktop and claude.ai, `validate_rca` is a tool the session
+  can decline to call.
+- Pinned to `mcp>=1.9.0,<2`: mcp 2.x renamed `FastMCP` to `MCPServer`. Porting
+  is tracked as a follow-up.
+````
 
 - [ ] **Step 2: Commit**
 
@@ -2522,11 +3139,19 @@ git commit -m "docs: add README with install, config, and first-run walkthrough"
 - [ ] **Step 1: Run the entire test suite**
 
 Run: `cd /Users/sharajrewoo/DemoReposQA/rcAnalyst && pytest -v --cov=src/rcanalyst`
-Expected: all tests from Tasks 1–12 pass; no import errors.
+Expected: all tests from Tasks 1–12 (including 9A) pass; no import errors.
+
+- [ ] **Step 1b: Confirm the envelope contract has not drifted**
+
+Run: `grep -rn "RCANALYST_RESULT_JSON" skills/ hooks/ src/ | sort`
+Expected: the sentinel appears in `skills/rca-methodology/SKILL.md` (what the host
+is told to emit), in `hooks/stop_validate.py` (what the hook greps for), and in
+`server.py`'s tool description. If it appears in only one of those, enforcement is
+dead — the hook will never match a real turn.
 
 - [ ] **Step 2: Smoke-test the server starts over stdio**
 
-Run: `timeout 3 uv run rcanalyst || echo "exited as expected (no client connected)"`
+Run: `timeout 3 uv run --directory . rcanalyst || echo "exited as expected (no client connected)"`
 Expected: no Python traceback; the process starts and waits on stdio until the timeout kills it.
 
 - [ ] **Step 3: Verify no stray stdout writes exist outside the MCP protocol**
