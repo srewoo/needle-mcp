@@ -189,6 +189,22 @@ not mistaken for a regression:
 
 ## Known sharp edges
 
+- A plugin installs from a marketplace, never a bare path.
+  `claude plugin install /path/to/needle-mcp` fails with "not found in any
+  configured marketplace"; the repo therefore ships
+  `.claude-plugin/marketplace.json` and the flow is
+  `claude plugin marketplace add <path>` then `claude plugin install
+  needle-mcp@needle-mcp`. The README documented the bare-path form for the
+  entire life of the Python implementation, and it never worked.
+- A plugin installed mid-session is not live in that session. MCP tool
+  connections are bound at session start, and the previously connected server
+  process keeps serving — on Unix it keeps running even after its own source
+  files are deleted. Verify a change by restarting, or by running the manifest's
+  declared command directly; a tool call in the installing session proves
+  nothing about the new build.
+- `claude plugin details` reports `MCP servers (0)` for a local-path install
+  even while `claude mcp list` shows the server connected. The list is the
+  authority.
 - The plugin path (`claude plugin install`) needs a built `dist/`. `plugin.json`
   points at `dist/index.js`, and `hooks/stop-validate.mjs` imports
   `dist/tools/validateRca.js`. Installing the plugin from a fresh clone without

@@ -38,13 +38,24 @@ claude mcp add needle-mcp -- npx -y needle-mcp
 That registers the 7 tools. For the full experience, install it as a plugin
 instead — this additionally bundles the rca-methodology skill and a `Stop` hook
 that validates any RCA envelope your session claims to have produced, before the
-turn can end:
+turn can end.
+
+A plugin is installed from a *marketplace*, not from a bare path, so the repo
+ships its own one-entry marketplace manifest and you add that first:
 
 ```bash
 git clone <this repo> ~/needle-mcp
-cd ~/needle-mcp && npm install && npm run build
-claude plugin install ~/needle-mcp
+cd ~/needle-mcp && npm install && npm run build   # required: the plugin runs dist/
+claude plugin marketplace add ~/needle-mcp
+claude plugin install needle-mcp@needle-mcp
 ```
+
+Then **restart Claude Code**. MCP tool connections are established at session
+start, so a plugin installed mid-session is not picked up until the next one.
+
+`npm run build` is not optional here: `plugin.json` launches `dist/index.js` and
+the Stop hook imports `dist/tools/validateRca.js`. Without it you get a server
+that will not start and a hook that fails open — enforcement silently off.
 
 The plugin path needs a checkout because the hook and skill are files Claude Code
 loads from disk, not things the MCP protocol can deliver.
