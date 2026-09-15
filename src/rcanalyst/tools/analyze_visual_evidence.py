@@ -44,11 +44,17 @@ def _parse_har_entries(har: dict, slow_threshold_ms: float) -> tuple[list[HarEnt
         }
         corr_headers = redact_headers(raw_headers, allowlist=CORRELATION_HEADER_NAMES)
         corr_headers = {k.lower(): v for k, v in corr_headers.items()}
+        # Defensive, matching this parser's posture elsewhere: a malformed HAR
+        # can carry a non-string or absent startedDateTime, and a missing
+        # wall-clock anchor is better than a fabricated one.
+        started = entry.get("startedDateTime")
+        timestamp = started if isinstance(started, str) and started else None
         kept.append(HarEntry(
             method=request.get("method", "?"),
             url=redact_url(request.get("url", "")),
             status=status,
             time_ms=time_ms,
+            timestamp=timestamp,
             correlation_headers=corr_headers,
         ))
     return kept, dropped

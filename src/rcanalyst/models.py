@@ -30,6 +30,12 @@ class HarEntry(BaseModel):
     url: str
     status: int
     time_ms: float
+    # Wall-clock anchor, from the HAR's ISO8601 `startedDateTime`. time_ms is a
+    # DURATION and cannot serve as one. Without this, the HAR entry point is the
+    # one flow that cannot supply the alert_window that validate_rca then
+    # requires every evidence row to sit inside. Optional because a malformed
+    # HAR may omit it, and a missing anchor beats a fabricated one.
+    timestamp: str | None = None
     correlation_headers: dict[str, str] = Field(default_factory=dict)
 
 

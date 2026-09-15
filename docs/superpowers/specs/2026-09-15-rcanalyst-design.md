@@ -149,7 +149,10 @@ Accepts a UI screenshot and/or a pasted HAR/network-tab export.
   solved in v1.
 - `har_json`: deterministically parsed. Returns only failed (`status >= 400`)
   and slow (configurable threshold) entries: method, redacted URL, status,
-  timings, and any correlation headers present
+  the entry's wall-clock start (`startedDateTime`, surfaced as `timestamp`) and
+  its duration (`time_ms` — a duration, not an anchor; the HAR entry point
+  needs the former to declare an `alert_window` that `validate_rca` will then
+  check every evidence row against), and any correlation headers present
   (`x-request-id`, `traceparent`, `x-amzn-trace-id`, `x-datadog-trace-id`,
   `x-correlation-id`, `request-id`), plus a count of entries dropped.
 - **Redaction is mandatory and on by default** (see §6 Security): header

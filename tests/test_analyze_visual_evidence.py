@@ -210,3 +210,39 @@ def test_entry_missing_response_does_not_crash():
     result = analyze_visual_evidence(context="x", har_json=json.dumps(har))
     assert len(result.har_entries) == 1
     assert result.har_entries[0].status == 0
+
+
+# --- Wall-clock anchor (I1) ---------------------------------------------------
+#
+# time_ms is a DURATION. Without startedDateTime the HAR entry point is the one
+# flow that cannot supply the alert_window validate_rca then requires every
+# evidence row to sit inside.
+
+
+def _har_with(started):
+    return {"log": {"entries": [{
+        "request": {"method": "GET", "url": "https://api.example.com/x", "headers": []},
+        "response": {"status": 500}, "time": 10, "startedDateTime": started,
+    }]}}
+
+
+def test_har_entry_carries_the_started_datetime_as_timestamp():
+    result = analyze_visual_evidence(
+        context="x", har_json=json.dumps(_har_with("2026-09-15T10:00:00.000Z"))
+    )
+    assert result.har_entries[0].timestamp == "2026-09-15T10:00:00.000Z"
+
+
+def test_har_entry_timestamp_is_none_when_startedDateTime_is_absent():
+    entry = {"request": {"method": "GET", "url": "https://a.example.com/x", "headers": []},
+             "response": {"status": 500}, "time": 10}
+    result = analyze_visual_evidence(context="x", har_json=json.dumps({"log": {"entries": [entry]}}))
+    assert result.har_entries[0].timestamp is None
+
+
+def test_har_entry_timestamp_tolerates_a_malformed_startedDateTime():
+    """A non-string value must not raise — this parser guards malformed HARs
+    everywhere else and this field is no exception."""
+    for bad in (12345, [], {}, None, ""):
+        result = analyze_visual_evidence(context="x", har_json=json.dumps(_har_with(bad)))
+        assert result.har_entries[0].timestamp is None
