@@ -273,12 +273,25 @@ question, (b) a bare identifier → `plan_investigation`, (c) a pasted screensho
   (never denylist), bodies dropped by default, `Authorization`/`Cookie`/
   `Set-Cookie` never returned even with `include_bodies=true`.
 - **`query_generic_source` SSRF/injection hardening**: the allowlist is derived
-  from the declared adapters and enforced in code at request time; every param
-  substitution is percent-encoded; the *built* URL is checked to still match the
-  adapter's scheme/host/port and base path prefix
-  (`assert_url_structure_unchanged`); off-allowlist redirects are refused by a
+  from the declared adapters and enforced in code at request time; **every**
+  value substituted into the query template is percent-encoded — including the
+  `start`/`end` time range, which arrives as model-supplied tool arguments and is
+  therefore exactly as untrusted as `params`; the *built* URL is checked by
+  `assert_url_structure_unchanged` to still match the adapter's scheme/host/port
+  and to contain no `..` path segment; off-allowlist redirects are refused by a
   custom redirect handler **before** the new host is contacted; hard request
-  timeout and response size cap apply.
+  timeout and response size cap apply; and every error is returned as a
+  structured `GenericQueryResult`, never raised.
+
+  Two notes recorded during implementation, because the original wording of this
+  section was wrong in a way worth remembering. First, `start`/`end` were
+  initially interpolated raw while `params` were encoded — with the shipped
+  adapter templates placing them in query-string position, a crafted `start`
+  could inject an arbitrary extra query parameter into a request carrying the
+  adapter's credentials. Second, `assert_url_structure_unchanged`'s base-path
+  prefix check is a no-op whenever `base_url` is a bare host (every shipped
+  example), because `str.startswith("")` is always true; the `..`-segment check
+  above is what makes that function do real work in the common configuration.
 
   Note what this deliberately does **not** do: it does not reject param *values*
   containing `://` or `..`. Searching logs for a URL is a core RCA query, and an
