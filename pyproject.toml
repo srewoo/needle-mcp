@@ -23,3 +23,10 @@ build-backend = "hatchling.build"
 
 [tool.hatch.build.targets.wheel]
 packages = ["src/rcanalyst"]
+
+# The methodology skill must ship inside the wheel: on a non-Claude-Code host it
+# is the ONLY way the five rules and the envelope schema reach the session (as an
+# MCP prompt + resource), and a `uvx rcanalyst` install has no repo checkout to
+# fall back to.
+[tool.hatch.build.targets.wheel.force-include]
+"skills" = "rcanalyst/skills"

@@ -1,7 +1,12 @@
 import asyncio
 import json
 import textwrap
-from rcanalyst.server import mcp
+from pathlib import Path
+
+from rcanalyst import server
+from rcanalyst.server import METHODOLOGY_URI, mcp
+
+REPO_ROOT = Path(__file__).resolve().parent.parent
 
 
 def _call(tool_name: str, arguments: dict):
@@ -95,3 +100,52 @@ def test_config_dir_resolves_adapters_path_under_env_var(monkeypatch, tmp_path):
 
 def test_server_has_instructions_mentioning_sibling_mcps():
     assert "vendor MCP" in mcp.instructions or "vendor" in mcp.instructions.lower()
+
+
+# --- Methodology delivery on non-Claude-Code hosts (spec §3) ------------------
+#
+# Claude Code loads skills/rca-methodology/SKILL.md through the plugin. Every
+# other host (Claude Desktop, claude.ai) can only receive the methodology as an
+# MCP prompt or resource; the ~11-line `instructions` string names the sentinels
+# but carries neither the envelope schema nor the five rules, so without these
+# registrations such a session cannot emit a valid envelope at all.
+
+
+def test_methodology_prompt_is_listed():
+    prompts = asyncio.run(mcp.list_prompts())
+    assert "rca_methodology" in {p.name for p in prompts}
+
+
+def test_methodology_resource_is_listed():
+    resources = asyncio.run(mcp.list_resources())
+    assert METHODOLOGY_URI in {str(r.uri) for r in resources}
+
+
+def test_methodology_resource_body_carries_the_envelope_contract():
+    contents = asyncio.run(mcp.read_resource(METHODOLOGY_URI))
+    body = "".join(c.content for c in contents)
+    assert "BEGIN_RCANALYST_RESULT_JSON" in body
+    assert "END_RCANALYST_RESULT_JSON" in body
+
+
+def test_methodology_prompt_and_resource_share_one_source_of_truth():
+    prompt_result = asyncio.run(mcp.get_prompt("rca_methodology", {}))
+    prompt_body = "".join(
+        m.content.text for m in prompt_result.messages if hasattr(m.content, "text")
+    )
+    resource_body = "".join(c.content for c in asyncio.run(mcp.read_resource(METHODOLOGY_URI)))
+    assert prompt_body == resource_body
+    assert prompt_body == (REPO_ROOT / "skills" / "rca-methodology" / "SKILL.md").read_text()
+
+
+def test_methodology_text_degrades_when_the_skill_file_is_missing(monkeypatch, tmp_path):
+    """A missing skill file must not crash the server on a prompt/resource read."""
+    monkeypatch.setattr(server, "METHODOLOGY_CANDIDATES", (tmp_path / "nope" / "SKILL.md",))
+    text = server._methodology_text()
+    assert "BEGIN_RCANALYST_RESULT_JSON" in text
+
+
+def test_methodology_path_does_not_depend_on_cwd(monkeypatch, tmp_path):
+    """An MCP server inherits an unpredictable cwd; resolution must not use it."""
+    monkeypatch.chdir(tmp_path)
+    assert "BEGIN_RCANALYST_RESULT_JSON" in server._methodology_text()

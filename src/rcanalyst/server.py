@@ -64,6 +64,77 @@ def _topology_path() -> Path:
 
 mcp = FastMCP("rcanalyst", instructions=INSTRUCTIONS)
 
+METHODOLOGY_URI = "rcanalyst://skills/rca-methodology"
+
+# Spec §3: on every host except Claude Code the methodology can only reach the
+# session as an MCP prompt/resource — a plain MCP server cannot drop a file into
+# a host's skill-loading path, and `instructions` alone carries neither the
+# envelope schema nor the five rules. Prompt and resource read the SAME file, so
+# there is exactly one source of truth.
+#
+# Path resolution deliberately avoids Path.cwd(): an MCP server launched as a
+# subprocess inherits an unpredictable working directory (often "/"), for the
+# same reason the config paths above don't use it. Two candidates cover both
+# layouts: the installed wheel (skills/ is force-included under the package by
+# pyproject.toml) and a source checkout (skills/ sits at the repo root, two
+# levels above the package directory).
+_SKILL_RELATIVE = Path("skills") / "rca-methodology" / "SKILL.md"
+_PACKAGE_DIR = Path(__file__).resolve().parent
+METHODOLOGY_CANDIDATES = (
+    _PACKAGE_DIR / _SKILL_RELATIVE,
+    _PACKAGE_DIR.parents[1] / _SKILL_RELATIVE,
+)
+
+_METHODOLOGY_MISSING = (
+    "The rca-methodology skill file could not be located in this installation. "
+    "Read it from the project's skills/rca-methodology/SKILL.md. Note that the "
+    "RCA result envelope must be emitted fenced between "
+    "BEGIN_RCANALYST_RESULT_JSON and END_RCANALYST_RESULT_JSON."
+)
+
+
+def _methodology_text() -> str:
+    """Read the methodology skill. Never raises: a missing or unreadable file
+    degrades to a short fallback rather than taking the server down, since this
+    is read during prompt/resource access on every host that connects."""
+    for candidate in METHODOLOGY_CANDIDATES:
+        try:
+            return candidate.read_text(encoding="utf-8")
+        except OSError:
+            continue
+    logger.warning(
+        "rca-methodology SKILL.md not found in any of %s",
+        [str(c) for c in METHODOLOGY_CANDIDATES],
+    )
+    return _METHODOLOGY_MISSING
+
+
+@mcp.prompt(
+    name="rca_methodology",
+    title="RCA methodology",
+    description=(
+        "The full rcAnalyst investigation discipline: the five rules, the "
+        "environment/coverage gates, and the exact RCA result envelope schema. "
+        "Read this before using any rcAnalyst tool."
+    ),
+)
+def rca_methodology_prompt() -> str:
+    return _methodology_text()
+
+
+@mcp.resource(
+    METHODOLOGY_URI,
+    name="rca_methodology",
+    title="RCA methodology",
+    description=(
+        "The full rcAnalyst investigation discipline and RCA result envelope "
+        "schema (skills/rca-methodology/SKILL.md)."
+    ),
+    mime_type="text/markdown",
+)
+def rca_methodology_resource() -> str:
+    return _methodology_text()
+
 
 def _adapters() -> AdaptersFile:
     return load_adapters(_adapters_path())
