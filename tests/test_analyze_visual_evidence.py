@@ -77,3 +77,119 @@ def test_no_input_returns_empty_result():
     result = analyze_visual_evidence(context="x")
     assert result.har_entries == []
     assert result.image_passthrough is None
+
+
+def test_mixed_case_correlation_header_is_normalized():
+    har = {
+        "log": {
+            "entries": [
+                {
+                    "request": {
+                        "method": "GET",
+                        "url": "https://api.example.com/x",
+                        "headers": [{"name": "X-Request-Id", "value": "req-mixed"}],
+                    },
+                    "response": {"status": 500},
+                    "time": 10,
+                }
+            ]
+        }
+    }
+    result = analyze_visual_evidence(context="x", har_json=json.dumps(har))
+    assert result.har_entries[0].correlation_headers.get("x-request-id") == "req-mixed"
+
+
+def test_string_time_does_not_crash():
+    har = {
+        "log": {
+            "entries": [
+                {
+                    "request": {"method": "GET", "url": "https://api.example.com/a", "headers": []},
+                    "response": {"status": 200},
+                    "time": "1500",
+                }
+            ]
+        }
+    }
+    result = analyze_visual_evidence(context="x", har_json=json.dumps(har))
+    assert len(result.har_entries) == 1
+
+
+def test_null_time_does_not_crash():
+    har = {
+        "log": {
+            "entries": [
+                {
+                    "request": {"method": "GET", "url": "https://api.example.com/a", "headers": []},
+                    "response": {"status": 500},
+                    "time": None,
+                }
+            ]
+        }
+    }
+    result = analyze_visual_evidence(context="x", har_json=json.dumps(har))
+    assert len(result.har_entries) == 1
+    assert result.har_entries[0].time_ms == 0
+
+
+def test_header_missing_value_does_not_crash():
+    har = {
+        "log": {
+            "entries": [
+                {
+                    "request": {
+                        "method": "GET",
+                        "url": "https://api.example.com/a",
+                        "headers": [{"name": "x-request-id"}],
+                    },
+                    "response": {"status": 500},
+                    "time": 10,
+                }
+            ]
+        }
+    }
+    result = analyze_visual_evidence(context="x", har_json=json.dumps(har))
+    assert result.har_entries[0].correlation_headers.get("x-request-id") == ""
+
+
+def test_header_missing_name_does_not_crash():
+    har = {
+        "log": {
+            "entries": [
+                {
+                    "request": {
+                        "method": "GET",
+                        "url": "https://api.example.com/a",
+                        "headers": [{"value": "orphan-value"}],
+                    },
+                    "response": {"status": 500},
+                    "time": 10,
+                }
+            ]
+        }
+    }
+    result = analyze_visual_evidence(context="x", har_json=json.dumps(har))
+    assert "orphan-value" not in result.har_entries[0].correlation_headers.values()
+
+
+def test_entry_missing_request_does_not_crash():
+    har = {"log": {"entries": [{"response": {"status": 500}, "time": 10}]}}
+    result = analyze_visual_evidence(context="x", har_json=json.dumps(har))
+    assert len(result.har_entries) == 1
+    assert result.har_entries[0].method == "?"
+
+
+def test_entry_missing_response_does_not_crash():
+    har = {
+        "log": {
+            "entries": [
+                {
+                    "request": {"method": "GET", "url": "https://api.example.com/a", "headers": []},
+                    "time": 1500,
+                }
+            ]
+        }
+    }
+    result = analyze_visual_evidence(context="x", har_json=json.dumps(har))
+    assert len(result.har_entries) == 1
+    assert result.har_entries[0].status == 0

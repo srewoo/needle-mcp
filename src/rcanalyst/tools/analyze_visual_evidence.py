@@ -24,15 +24,23 @@ def _parse_har_entries(har: dict, slow_threshold_ms: float) -> tuple[list[HarEnt
     kept: list[HarEntry] = []
     dropped = 0
     for entry in entries:
-        request = entry.get("request", {})
-        response = entry.get("response", {})
-        status = response.get("status", 0)
-        time_ms = entry.get("time", 0)
+        request = entry.get("request") or {}
+        response = entry.get("response") or {}
+        status = response.get("status", 0) or 0
+        try:
+            time_ms = float(entry.get("time") or 0)
+        except (TypeError, ValueError):
+            time_ms = 0
         if not (status >= 400 or time_ms >= slow_threshold_ms):
             dropped += 1
             continue
-        raw_headers = {h["name"]: h["value"] for h in request.get("headers", [])}
+        raw_headers = {
+            h["name"]: h.get("value", "")
+            for h in request.get("headers", [])
+            if h.get("name")
+        }
         corr_headers = redact_headers(raw_headers, allowlist=CORRELATION_HEADER_NAMES)
+        corr_headers = {k.lower(): v for k, v in corr_headers.items()}
         kept.append(HarEntry(
             method=request.get("method", "?"),
             url=redact_url(request.get("url", "")),
