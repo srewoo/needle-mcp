@@ -1,5 +1,17 @@
 # needle-mcp — Design Spec
 
+> [!WARNING]
+> **HISTORICAL DOCUMENT — describes the original Python implementation.**
+>
+> needle-mcp was ported to TypeScript (commit `e9b70b9`) and published to npm.
+> There is no Python in this repository: no `pyproject.toml`, no `pytest`, no
+> `pydantic`, no virtualenv. Every code block, file path, dependency floor and
+> shell command below refers to code that no longer exists.
+>
+> Kept as a record of the original design reasoning and the invariants it
+> established — most of which still hold and are restated, in their current
+> form, in `CLAUDE.md`. Read that, not this, before changing anything.
+
 Status: Approved for implementation planning
 Date: 2026-09-15
 

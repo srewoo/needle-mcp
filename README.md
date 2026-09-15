@@ -20,35 +20,56 @@ you already have connected.
 
 ## Install
 
-`needle-mcp` is not published to PyPI — run it from a local checkout. `uvx
-needle-mcp` will NOT work (it resolves from the package index).
+Published to npm, so no checkout is needed:
 
 ```bash
-git clone <this repo> ~/needle-mcp
-uv run --directory ~/needle-mcp needle-mcp --help
+npx needle-mcp --help
 ```
+
+Requires Node.js 18.17 or newer. There are no runtime credentials to configure —
+needle-mcp has none of its own.
 
 ### Claude Code (recommended — gets enforcement)
 
-Install as a plugin (bundles the MCP server, the rca-methodology skill, and a
-`Stop` hook that validates any RCA envelope your session claims to have
-produced, before the turn can end):
+```bash
+claude mcp add needle-mcp -- npx -y needle-mcp
+```
+
+That registers the 7 tools. For the full experience, install it as a plugin
+instead — this additionally bundles the rca-methodology skill and a `Stop` hook
+that validates any RCA envelope your session claims to have produced, before the
+turn can end.
+
+A plugin is installed from a *marketplace*, not from a bare path, so the repo
+ships its own one-entry marketplace manifest and you add that first:
 
 ```bash
-claude plugin install ~/needle-mcp
+git clone <this repo> ~/needle-mcp
+cd ~/needle-mcp && npm install && npm run build   # required: the plugin runs dist/
+claude plugin marketplace add ~/needle-mcp
+claude plugin install needle-mcp@needle-mcp
 ```
+
+Then **restart Claude Code**. MCP tool connections are established at session
+start, so a plugin installed mid-session is not picked up until the next one.
+
+`npm run build` is not optional here: `plugin.json` launches `dist/index.js` and
+the Stop hook imports `dist/tools/validateRca.js`. Without it you get a server
+that will not start and a hook that fails open — enforcement silently off.
+
+The plugin path needs a checkout because the hook and skill are files Claude Code
+loads from disk, not things the MCP protocol can deliver.
 
 ### Claude Desktop / other MCP hosts
 
-Add to your MCP config (e.g. `claude_desktop_config.json`), using an absolute
-path — a `uv run --directory` invocation, not `uvx`:
+Add to your MCP config (e.g. `claude_desktop_config.json`):
 
 ```json
 {
   "mcpServers": {
     "needle-mcp": {
-      "command": "uv",
-      "args": ["run", "--directory", "/absolute/path/to/needle-mcp", "needle-mcp"],
+      "command": "npx",
+      "args": ["-y", "needle-mcp"],
       "env": { "NEEDLE_MCP_CONFIG_DIR": "/absolute/path/to/your/config/dir" }
     }
   }
@@ -66,7 +87,16 @@ tradeoff, not parity with the Claude Code experience.
 Run with the HTTP transport and register it as a remote MCP server:
 
 ```bash
-uv run --directory /absolute/path/to/needle-mcp needle-mcp --http
+npx needle-mcp --http 8000
+```
+
+## Developing
+
+```bash
+npm install
+npm test          # vitest, 207 tests
+npm run typecheck # tsc --noEmit, strict
+npm run build     # emits dist/
 ```
 
 ## Configure your own sources (optional)

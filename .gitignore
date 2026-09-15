@@ -1,20 +1,9 @@
-__pycache__/
-*.py[cod]
-.venv*/
-*.egg-info/
+node_modules/
 dist/
-build/
-.pytest_cache/
-.coverage
-htmlcov/
-.superpowers/
-
-# User-authored config — never commit a deployment's own sources/topology.
-adapters.yaml
-topology.yaml
-
-# macOS finder junk
+*.tsbuildinfo
+npm-debug.log*
 .DS_Store
 
-# uv generates this on `uv run`; resolution is machine-local and not part of the plugin contract.
-uv.lock
+# Local deployment config — never committed; only the .example files are.
+adapters.yaml
+topology.yaml

@@ -4,12 +4,9 @@
   "description": "Generic, credential-free RCA investigation tools and methodology, composing with whatever vendor MCPs are already connected.",
   "mcpServers": {
     "needle-mcp": {
-      "command": "uv",
+      "command": "node",
       "args": [
-        "run",
-        "--directory",
-        "${CLAUDE_PLUGIN_ROOT}",
-        "needle-mcp"
+        "${CLAUDE_PLUGIN_ROOT}/dist/index.js"
       ],
       "env": {
         "NEEDLE_MCP_CONFIG_DIR": "${CLAUDE_PROJECT_DIR}"
