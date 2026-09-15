@@ -1,4 +1,5 @@
 import json
+from rcanalyst.tools import analyze_visual_evidence as ave
 from rcanalyst.tools.analyze_visual_evidence import analyze_visual_evidence
 
 SAMPLE_HAR = {
@@ -246,3 +247,50 @@ def test_har_entry_timestamp_tolerates_a_malformed_startedDateTime():
     for bad in (12345, [], {}, None, ""):
         result = analyze_visual_evidence(context="x", har_json=json.dumps(_har_with(bad)))
         assert result.har_entries[0].timestamp is None
+
+
+# --- Structured failure instead of a raw MCP tool error (I2) ------------------
+#
+# Every other tool in this server returns a structured result on failure.
+# _load_har used to let OSError/JSONDecodeError escape, so a mistyped path or a
+# truncated export surfaced to the host as a raw tool error with no guidance.
+
+
+def test_missing_har_path_returns_a_note_not_an_exception():
+    result = analyze_visual_evidence(context="x", har_path="/nonexistent/does-not-exist.har")
+    assert result.har_entries == []
+    assert any("does-not-exist.har" in n for n in result.notes)
+
+
+def test_malformed_har_json_returns_a_note_not_an_exception():
+    result = analyze_visual_evidence(context="x", har_json='{"log": {"entries": [')
+    assert result.har_entries == []
+    assert any("not valid JSON" in n for n in result.notes)
+
+
+def test_malformed_har_file_returns_a_note_not_an_exception(tmp_path):
+    bad = tmp_path / "truncated.har"
+    bad.write_text('{"log": {"entries": [')
+    result = analyze_visual_evidence(context="x", har_path=str(bad))
+    assert result.har_entries == []
+    assert any("not valid JSON" in n for n in result.notes)
+
+
+def test_oversized_har_file_is_refused_with_a_note(tmp_path, monkeypatch):
+    monkeypatch.setattr(ave, "MAX_HAR_FILE_BYTES", 10)
+    big = tmp_path / "big.har"
+    big.write_text(json.dumps(SAMPLE_HAR))
+    result = analyze_visual_evidence(context="x", har_path=str(big))
+    assert result.har_entries == []
+    assert any("byte cap" in n for n in result.notes)
+
+
+def test_oversized_har_cap_is_generous_enough_for_a_real_export():
+    """Spec §4 anticipates 5-50MB HAR exports; the cap must not undercut that."""
+    assert ave.MAX_HAR_FILE_BYTES >= 50 * 1000 * 1000
+
+
+def test_har_input_that_is_not_an_object_returns_a_note():
+    result = analyze_visual_evidence(context="x", har_json="[1, 2, 3]")
+    assert result.har_entries == []
+    assert any("not a HAR document" in n for n in result.notes)
