@@ -1,5 +1,17 @@
 # needle-mcp Implementation Plan
 
+> [!WARNING]
+> **HISTORICAL DOCUMENT — describes the original Python implementation.**
+>
+> needle-mcp was ported to TypeScript (commit `e9b70b9`) and published to npm.
+> There is no Python in this repository: no `pyproject.toml`, no `pytest`, no
+> `pydantic`, no virtualenv. Every code block, file path, dependency floor and
+> shell command below refers to code that no longer exists.
+>
+> Kept as a record of the original design reasoning and the invariants it
+> established — most of which still hold and are restated, in their current
+> form, in `CLAUDE.md`. Read that, not this, before changing anything.
+
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
 **Goal:** Build needle-mcp — a stateless, credential-free MCP server (plus a Claude Code plugin distribution) that gives any Claude session generic RCA-investigation building blocks and a ported, vendor-agnostic version of DebugIQ's investigation discipline.
