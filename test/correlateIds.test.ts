@@ -64,6 +64,60 @@ describe("correlateIds", () => {
     expect(c.suggested_window).toEqual(["2026-09-15T10:02:11+00:00", "2026-09-15T10:06:11+00:00"]);
   });
 
+  // --- Underscored identifiers -----------------------------------------------
+  //
+  // The opaque-token class once excluded '_', so `request_id=req_7f3a9c`
+  // captured only `req` — below the {6,} floor — and the id was dropped with no
+  // error and no candidate. `req_`/`msg_`/`job_`/`sess_` prefixes are among the
+  // most common conventions in the wild, so the pattern missed exactly the ids
+  // most worth correlating, and the empty result read as "these logs share
+  // nothing".
+  it("extracts underscored ids across every opaque-token key", () => {
+    const result = correlateIds([
+      "2026-09-15T10:04:11Z status=500 request_id=req_7f3a9c trace_id=trace_abc123",
+      "2026-09-15T10:04:11Z publish failed message_id=msg_01HQ7 correlation_id=corr_zz99x",
+      "2026-09-15T10:04:19Z retry message_id=msg_01HQ7 job_id=job_5521 x-request-id=xrq_44ab21",
+    ]);
+    const found = new Map(result.candidates.map((c) => [c.key_name, c.value]));
+    expect(found.get("request_id")).toBe("req_7f3a9c");
+    expect(found.get("trace_id")).toBe("trace_abc123");
+    expect(found.get("message_id")).toBe("msg_01HQ7");
+    expect(found.get("correlation_id")).toBe("corr_zz99x");
+    expect(found.get("job_id")).toBe("job_5521");
+    expect(found.get("x-request-id")).toBe("xrq_44ab21");
+  });
+
+  it("ranks an underscored id high when it spans the sync-to-async hop", () => {
+    // The whole purpose of the tool: carrying an id from the producer's log
+    // into the consumer's.
+    const result = correlateIds([
+      "2026-09-15T10:04:11Z ERROR publish failed message_id=msg_01HQ7",
+      "2026-09-15T10:04:19Z WARN consumer retry 3/5 message_id=msg_01HQ7",
+    ]);
+    const msg = result.candidates.find((c) => c.key_name === "message_id")!;
+    expect(msg.confidence).toBe("high");
+    expect(new Set(msg.seen_in_snippets)).toEqual(new Set([0, 1]));
+  });
+
+  it("stops an underscored value at whitespace and punctuation", () => {
+    // Widening the class must not let one value swallow the next token.
+    const result = correlateIds(["request_id=req_7f3a9c,trace_id=trace_abc123 svc=checkout"]);
+    const values = result.candidates.map((c) => c.value);
+    expect(values).toContain("req_7f3a9c");
+    expect(values).toContain("trace_abc123");
+    for (const v of values) expect(v).not.toContain(" ");
+  });
+
+  it("denylists underscored placeholder values", () => {
+    // These became reachable only once '_' entered the class; they are real
+    // placeholders, and a false candidate sends an investigation down a wrong
+    // path just as effectively as a missing one.
+    const result = correlateIds([
+      "request_id=not_available trace_id=undefined message_id=not_set job_id=none_provided",
+    ]);
+    expect(result.candidates).toEqual([]);
+  });
+
   it("returns no candidates when nothing matches", () => {
     expect(correlateIds(["just a plain log line with no ids"]).candidates).toEqual([]);
   });

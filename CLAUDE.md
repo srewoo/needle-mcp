@@ -94,6 +94,19 @@ without that it would be laxer than the Python original it replaced.
 pass while the request still went to the escaped path. Python's `urlparse`
 preserved the segments, so the original could check the parsed path; this cannot.
 
+**An opaque-token value class must include `_`.** `OPAQUE_TOKEN` in
+`correlateIds.ts` backs the six generic key patterns. It once omitted the
+underscore, so `request_id=req_7f3a9c` captured only `req` — below the `{6,}`
+floor — and the identifier was dropped with no error and no candidate.
+`req_`/`msg_`/`job_`/`sess_` prefixes are among the commonest conventions in the
+wild, so the pattern missed exactly the ids most worth correlating, and the
+empty result read as "these logs share nothing". The fixed-format patterns
+(`traceparent`, `x-datadog-trace-id`, `span_id`, `x-amzn-trace-id`) keep their
+narrow classes on purpose — those formats cannot contain an underscore, and
+widening them would only cost precision. Widening the class also made
+underscored placeholders (`not_available`, `not_set`) reachable, so they are now
+explicit DENYLIST entries rather than being excluded by accident of length.
+
 **Identifier conversion uses `BigInt`, never `Number`.** A Datadog decimal trace
 id such as `9925525482204591653` exceeds `Number.MAX_SAFE_INTEGER`; parsed as a
 double it rounds silently and the hex form matches nothing in any vendor's index.
@@ -146,6 +159,17 @@ during the build for asserting things that were true of any input.
 This repo has a pre-commit hook that blocks commits without an interactive TTY.
 Use `CLAUDE_SKIP_HOOKS=1 git commit -m "..."`. Do not use `--no-verify` and do not
 modify or remove the hook.
+
+## Behavioural changes from the Python original
+
+The port is otherwise output-identical (verified by a differential harness over
+8 identifiers, 5 correlation sets and 7 RCA envelopes). One deliberate exception:
+
+- **`correlate_ids` now finds underscored identifiers.** See the `OPAQUE_TOKEN`
+  invariant above. On the differential corpus this recovers `request_id`,
+  `message_id` and `job_id` from a snippet set where the Python implementation
+  returned only `trace_id`. `plan_investigation` and `validate_rca` output is
+  unchanged in every case.
 
 ## Known sharp edges
 

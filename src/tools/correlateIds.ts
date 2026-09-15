@@ -2,28 +2,62 @@ import type { CorrelationCandidate, CorrelationResult } from "../models.js";
 import { normalizeIdentifier } from "./normalizeIdentifier.js";
 
 /**
+ * The character class for an OPAQUE token value.
+ *
+ * The underscore is load-bearing. Without it, `request_id=req_7f3a9c` captured
+ * only `req` — three characters, below the {6,} floor — and the identifier was
+ * dropped with no error, no warning and no candidate. Prefixed-with-underscore
+ * ids (`req_`, `msg_`, `job_`, `sess_`, `evt_`) are one of the most common
+ * conventions in the wild, so the pattern missed exactly the ids most worth
+ * correlating. The failure mode is an empty result that reads as "these logs
+ * share nothing", which is the most expensive way for this tool to be wrong.
+ *
+ * The {6,} floor still does the discriminating work: it is what keeps `0`,
+ * `null` and `n/a` out, and the DENYLIST catches the rest.
+ */
+const OPAQUE_TOKEN = String.raw`[A-Za-z0-9_\-]{6,}`;
+
+/**
  * Insertion order is significant: the first pattern to claim a value decides
  * its key_name, so the more specific vendor spellings must precede the generic
  * ones they would otherwise be swallowed by.
+ *
+ * The fixed-format patterns (traceparent, x-datadog-trace-id, span_id,
+ * x-amzn-trace-id) deliberately keep their narrow classes — those formats are
+ * specified and cannot contain an underscore, so widening them would only cost
+ * precision.
  */
 export const KEY_PATTERNS: ReadonlyArray<readonly [string, RegExp]> = [
-  ["x-request-id", /x-request-id[=:]\s*"?([A-Za-z0-9\-]{6,})"?/gi],
-  ["request_id", /(?<!x-)request_id[=:]\s*"?([A-Za-z0-9\-]{6,})"?/gi],
-  ["trace_id", /(?<!datadog-)(?<!x-)trace_id[=:]\s*"?([A-Za-z0-9\-]{6,})"?/gi],
+  ["x-request-id", new RegExp(String.raw`x-request-id[=:]\s*"?(${OPAQUE_TOKEN})"?`, "gi")],
+  ["request_id", new RegExp(String.raw`(?<!x-)request_id[=:]\s*"?(${OPAQUE_TOKEN})"?`, "gi")],
+  [
+    "trace_id",
+    new RegExp(String.raw`(?<!datadog-)(?<!x-)trace_id[=:]\s*"?(${OPAQUE_TOKEN})"?`, "gi"),
+  ],
   [
     "traceparent",
     /traceparent[=:]\s*"?([0-9a-f]{2}-[0-9a-f]{32}-[0-9a-f]{16}-[0-9a-f]{2})"?/gi,
   ],
   ["x-datadog-trace-id", /x-datadog-trace-id[=:]\s*"?(\d{1,20})"?/gi],
   ["x-amzn-trace-id", /x-amzn-trace-id[=:]\s*"?([A-Za-z0-9=;\-]{6,})"?/gi],
-  ["correlation_id", /correlation_id[=:]\s*"?([A-Za-z0-9\-]{6,})"?/gi],
-  ["message_id", /message[_-]?id[=:]\s*"?([A-Za-z0-9\-]{6,})"?/gi],
-  ["job_id", /job[_-]?id[=:]\s*"?([A-Za-z0-9\-]{6,})"?/gi],
+  ["correlation_id", new RegExp(String.raw`correlation_id[=:]\s*"?(${OPAQUE_TOKEN})"?`, "gi")],
+  ["message_id", new RegExp(String.raw`message[_-]?id[=:]\s*"?(${OPAQUE_TOKEN})"?`, "gi")],
+  ["job_id", new RegExp(String.raw`job[_-]?id[=:]\s*"?(${OPAQUE_TOKEN})"?`, "gi")],
   ["span_id", /span_id[=:]\s*"?([0-9a-f]{6,32})"?/gi],
 ];
 
 export const ASYNC_KEYS: ReadonlySet<string> = new Set(["message_id", "job_id", "correlation_id"]);
 
+/**
+ * Values that are syntactically ids but semantically "there wasn't one".
+ * Querying a vendor for these returns the whole fleet, which reads as a broad
+ * incident.
+ *
+ * The underscored entries became reachable only when OPAQUE_TOKEN gained `_`:
+ * before that they were captured as a sub-3-character fragment and fell below
+ * the length floor by accident. They are placeholders applications really do
+ * emit, so they are now excluded on purpose rather than by side effect.
+ */
 const DENYLIST: ReadonlySet<string> = new Set([
   "0",
   "-",
@@ -32,6 +66,12 @@ const DENYLIST: ReadonlySet<string> = new Set([
   "n/a",
   "na",
   "00000000-0000-0000-0000-000000000000",
+  "undefined",
+  "not_set",
+  "not_available",
+  "none_provided",
+  "unknown_id",
+  "no_value",
 ]);
 
 const TS_PATTERN = /(\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d+)?Z?)/;
