@@ -257,3 +257,80 @@ def test_pre_request_host_check_still_uses_the_full_allowlist(mock_server):
     )
     assert result.error is None
     assert result.returned_count == 1
+
+
+# --- Credential handling (I4) -------------------------------------------------
+
+
+def test_basic_auth_with_unset_env_vars_reports_the_env_var_not_an_empty_credential(mock_server, monkeypatch):
+    """Sending Basic base64(":") gets a 401 from the vendor and leaves the
+    operator debugging their query instead of their environment."""
+    monkeypatch.delenv("RCANALYST_TEST_BASIC_USER", raising=False)
+    monkeypatch.delenv("RCANALYST_TEST_BASIC_PASS", raising=False)
+    adapter = _adapter_for(
+        mock_server, auth_mode="basic",
+        basic_user_env_var="RCANALYST_TEST_BASIC_USER",
+        basic_pass_env_var="RCANALYST_TEST_BASIC_PASS",
+    )
+    result = query_generic_source(
+        adapter=adapter, params={"query": "checkout"},
+        time_range=TimeRange(start="2026-09-15T00:00:00Z", end="2026-09-15T01:00:00Z"),
+        allowed_hosts=["127.0.0.1"],
+    )
+    assert result.rows == []
+    assert result.error is not None
+    assert "RCANALYST_TEST_BASIC_USER" in result.error
+    assert "Rejected param" not in result.error
+
+
+def test_basic_auth_without_configured_env_var_names_the_missing_field(mock_server):
+    adapter = _adapter_for(mock_server, auth_mode="basic")
+    result = query_generic_source(
+        adapter=adapter, params={"query": "checkout"},
+        time_range=TimeRange(start="2026-09-15T00:00:00Z", end="2026-09-15T01:00:00Z"),
+        allowed_hosts=["127.0.0.1"],
+    )
+    assert "basic_user_env_var" in (result.error or "")
+
+
+def test_basic_auth_succeeds_when_both_env_vars_are_set(mock_server, monkeypatch):
+    monkeypatch.setenv("RCANALYST_TEST_BASIC_USER", "svc")
+    monkeypatch.setenv("RCANALYST_TEST_BASIC_PASS", "hunter2")
+    adapter = _adapter_for(
+        mock_server, auth_mode="basic",
+        basic_user_env_var="RCANALYST_TEST_BASIC_USER",
+        basic_pass_env_var="RCANALYST_TEST_BASIC_PASS",
+    )
+    result = query_generic_source(
+        adapter=adapter, params={"query": "checkout"},
+        time_range=TimeRange(start="2026-09-15T00:00:00Z", end="2026-09-15T01:00:00Z"),
+        allowed_hosts=["127.0.0.1"],
+    )
+    assert result.error is None
+    assert result.returned_count == 1
+
+
+def test_static_header_missing_credential_is_not_reported_as_a_rejected_param(mock_server, monkeypatch):
+    """The static_header path already failed loudly; it just failed with the
+    wrong words — 'Rejected param' points at the query, not the environment."""
+    monkeypatch.delenv("RCANALYST_TEST_TOKEN", raising=False)
+    adapter = _adapter_for(mock_server, auth_mode="static_header", auth_env_var="RCANALYST_TEST_TOKEN")
+    result = query_generic_source(
+        adapter=adapter, params={"query": "checkout"},
+        time_range=TimeRange(start="2026-09-15T00:00:00Z", end="2026-09-15T01:00:00Z"),
+        allowed_hosts=["127.0.0.1"],
+    )
+    assert "Rejected param" not in (result.error or "")
+    assert "RCANALYST_TEST_TOKEN" in (result.error or "")
+    assert "credential" in (result.error or "").lower()
+
+
+def test_a_genuinely_rejected_param_still_says_rejected_param(mock_server):
+    """The generic ValueError clause must keep its own, accurate message."""
+    adapter = _adapter_for(mock_server)
+    result = query_generic_source(
+        adapter=adapter, params={"query": "//evil.example.com"},
+        time_range=TimeRange(start="2026-09-15T00:00:00Z", end="2026-09-15T01:00:00Z"),
+        allowed_hosts=["127.0.0.1"],
+    )
+    assert result.error is not None and result.error.startswith("Rejected param")

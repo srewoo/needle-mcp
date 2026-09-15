@@ -56,6 +56,15 @@ def load_topology(path: str | Path) -> TopologyFile:
     return TopologyFile(**raw)
 
 
+class MissingCredentialError(ValueError):
+    """An adapter declares an auth mode but its credential is not available.
+
+    Distinct from a rejected parameter value: the caller's query was fine, the
+    deployment's environment is not. Reporting this as "Rejected param: ..."
+    sent operators looking in entirely the wrong place.
+    """
+
+
 def resolve_adapter_credential(adapter: AdapterConfig) -> str | None:
     """Resolve the credential for a static_header adapter from its env var.
 
@@ -66,9 +75,13 @@ def resolve_adapter_credential(adapter: AdapterConfig) -> str | None:
     """
     if adapter.auth_mode == "static_header":
         if not adapter.auth_env_var:
-            raise ValueError(f"Adapter '{adapter.name}' is static_header but has no auth_env_var")
+            raise MissingCredentialError(
+                f"Adapter '{adapter.name}' is static_header but has no auth_env_var configured."
+            )
         value = os.environ.get(adapter.auth_env_var)
         if not value:
-            raise ValueError(f"Env var '{adapter.auth_env_var}' for adapter '{adapter.name}' is not set")
+            raise MissingCredentialError(
+                f"Env var '{adapter.auth_env_var}' for adapter '{adapter.name}' is not set."
+            )
         return value
     return None

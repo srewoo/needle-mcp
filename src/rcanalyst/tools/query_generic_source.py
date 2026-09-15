@@ -6,7 +6,7 @@ import urllib.error
 import urllib.request
 from urllib.parse import urlparse
 from rcanalyst.bounding import bound_json
-from rcanalyst.config import AdapterConfig, resolve_adapter_credential
+from rcanalyst.config import AdapterConfig, MissingCredentialError, resolve_adapter_credential
 from rcanalyst.models import GenericQueryResult, TimeRange
 from rcanalyst.security import (
     assert_host_allowed, safe_encode_param, assert_url_structure_unchanged,
@@ -57,8 +57,25 @@ def _build_headers(adapter: AdapterConfig) -> dict[str, str]:
         value = resolve_adapter_credential(adapter)
         headers[adapter.header_name or "Authorization"] = value or ""
     elif adapter.auth_mode == "basic":
-        user = os.environ.get(adapter.basic_user_env_var or "", "")
-        pw = os.environ.get(adapter.basic_pass_env_var or "", "")
+        # Unset credentials used to produce Basic base64(":") — an empty
+        # credential sent to the vendor, which answers 401 and leaves the
+        # operator debugging the query rather than their environment. The
+        # static_header path has always failed loudly on the same condition;
+        # basic auth now matches it.
+        for field, env_var in (
+            ("basic_user_env_var", adapter.basic_user_env_var),
+            ("basic_pass_env_var", adapter.basic_pass_env_var),
+        ):
+            if not env_var:
+                raise MissingCredentialError(
+                    f"Adapter '{adapter.name}' is basic auth but has no {field} configured."
+                )
+            if not os.environ.get(env_var):
+                raise MissingCredentialError(
+                    f"Env var '{env_var}' ({field}) for adapter '{adapter.name}' is not set."
+                )
+        user = os.environ[adapter.basic_user_env_var or ""]
+        pw = os.environ[adapter.basic_pass_env_var or ""]
         token = base64.b64encode(f"{user}:{pw}".encode()).decode()
         headers["Authorization"] = f"Basic {token}"
     return headers
@@ -121,6 +138,15 @@ def query_generic_source(
                 f"query_template placeholder not satisfied: {e}. Every {{name}} in the "
                 "template must be supplied in params (literal braces must be doubled)."
             ),
+        )
+    except MissingCredentialError as e:
+        # Listed BEFORE the ValueError clause it subclasses. A missing credential
+        # is a deployment-environment problem, not a rejected parameter value,
+        # and the old "Rejected param: ..." wording pointed operators at the
+        # query instead of at their env vars.
+        return GenericQueryResult(
+            rows=[], truncated=False, returned_count=0,
+            error=f"Adapter credential unavailable: {e}",
         )
     except ValueError as e:
         return GenericQueryResult(rows=[], truncated=False, returned_count=0, error=f"Rejected param: {e}")
