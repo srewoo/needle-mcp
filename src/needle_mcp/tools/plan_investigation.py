@@ -1,8 +1,8 @@
 from __future__ import annotations
 import re
-from rcanalyst.config import AdapterConfig, TopologyFile
-from rcanalyst.models import IdentifierPlan, SourceCandidate
-from rcanalyst.tools.correlate_ids import ASYNC_KEYS, KEY_PATTERNS, normalize_identifier
+from needle_mcp.config import AdapterConfig, TopologyFile
+from needle_mcp.models import IdentifierPlan, SourceCandidate
+from needle_mcp.tools.correlate_ids import ASYNC_KEYS, KEY_PATTERNS, normalize_identifier
 
 _UUID = re.compile(r"^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$", re.IGNORECASE)
 _W3C_TRACE = re.compile(r"^[0-9a-f]{32}$", re.IGNORECASE)

@@ -1,6 +1,6 @@
 import json
-from rcanalyst.tools import analyze_visual_evidence as ave
-from rcanalyst.tools.analyze_visual_evidence import analyze_visual_evidence
+from needle_mcp.tools import analyze_visual_evidence as ave
+from needle_mcp.tools.analyze_visual_evidence import analyze_visual_evidence
 
 SAMPLE_HAR = {
     "log": {

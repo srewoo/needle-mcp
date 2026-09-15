@@ -1,6 +1,6 @@
 from pathlib import Path
 import pytest
-from rcanalyst.config import (
+from needle_mcp.config import (
     AdapterConfig, AdaptersFile, SurfaceCoverage, TopologyFile,
     load_adapters, load_topology, resolve_adapter_credential,
 )

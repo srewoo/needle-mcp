@@ -1,14 +1,14 @@
-# rcAnalyst Implementation Plan
+# needle-mcp Implementation Plan
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
-**Goal:** Build rcAnalyst — a stateless, credential-free MCP server (plus a Claude Code plugin distribution) that gives any Claude session generic RCA-investigation building blocks and a ported, vendor-agnostic version of DebugIQ's investigation discipline.
+**Goal:** Build needle-mcp — a stateless, credential-free MCP server (plus a Claude Code plugin distribution) that gives any Claude session generic RCA-investigation building blocks and a ported, vendor-agnostic version of DebugIQ's investigation discipline.
 
 **Architecture:** A Python MCP server (`mcp` SDK, `FastMCP`) exposing seven tools with zero vendor-specific code — `plan_investigation`, `correlate_ids`, `analyze_visual_evidence`, `query_generic_source`, `list_generic_sources`, `get_coverage`, `validate_rca` — backed by pure, independently-tested business-logic functions. Config (`adapters.yaml`, `topology.yaml`) is user-authored, starting from shipped examples. Methodology lives in a skill file exposed three ways: MCP `instructions`, a Claude Code plugin skill, and (implicitly) whatever the host reads. Claude Code additionally gets a `Stop` hook that runs `validate_rca` against the just-finished turn, the only distribution channel with non-optional enforcement.
 
 **Tech Stack:** Python 3.11+, `mcp` (official Python SDK, `FastMCP`), `pydantic` v2, `pyyaml`, `pytest`. No Anthropic SDK, no Agent SDK, no database.
 
-**Spec:** `docs/superpowers/specs/2026-09-15-rcanalyst-design.md`
+**Spec:** `docs/superpowers/specs/2026-09-15-needle-mcp-design.md`
 
 ## Global Constraints
 
@@ -25,7 +25,7 @@
   renamed to `MCPServer`), so an unpinned install breaks every import in this plan. Porting
   to 2.x is a tracked follow-up, not part of v1.
 - The RCA result envelope is emitted fenced between the exact sentinels
-  `BEGIN_RCANALYST_RESULT_JSON` and `END_RCANALYST_RESULT_JSON`. The skill instructs the host
+  `BEGIN_NEEDLE_MCP_RESULT_JSON` and `END_NEEDLE_MCP_RESULT_JSON`. The skill instructs the host
   to emit them; the Stop hook greps for them. These two must never drift apart — if the
   sentinel changes in one place it changes in both.
 
@@ -36,13 +36,13 @@
 **Files:**
 - Create: `pyproject.toml`
 - Create: `.gitignore`
-- Create: `src/rcanalyst/__init__.py`
-- Create: `src/rcanalyst/models.py`
+- Create: `src/needle_mcp/__init__.py`
+- Create: `src/needle_mcp/models.py`
 - Test: `tests/test_models.py`
 
 **Interfaces:**
 - Consumes: nothing (first task)
-- Produces: `TimeRange`, `CorrelationCandidate`, `CorrelationResult`, `HarEntry`, `VisualEvidenceResult`, `GenericQueryResult`, `SourceInfo`, `CoverageResult`, `SourceCandidate`, `IdentifierPlan`, `ValidationGap`, `ValidationResult` — all `pydantic.BaseModel` subclasses in `rcanalyst.models`, used by every later task.
+- Produces: `TimeRange`, `CorrelationCandidate`, `CorrelationResult`, `HarEntry`, `VisualEvidenceResult`, `GenericQueryResult`, `SourceInfo`, `CoverageResult`, `SourceCandidate`, `IdentifierPlan`, `ValidationGap`, `ValidationResult` — all `pydantic.BaseModel` subclasses in `needle_mcp.models`, used by every later task.
 
 - [ ] **Step 1: Create the project scaffold**
 
@@ -50,7 +50,7 @@
 
 ```toml
 [project]
-name = "rcanalyst"
+name = "needle-mcp"
 version = "0.1.0"
 description = "Generic, credential-free MCP server for RCA investigation, composing with whatever vendor MCPs are already connected."
 requires-python = ">=3.11"
@@ -63,7 +63,7 @@ dependencies = [
 ]
 
 [project.scripts]
-rcanalyst = "rcanalyst.server:main"
+needle_mcp = "needle_mcp.server:main"
 
 [project.optional-dependencies]
 dev = ["pytest>=8.0", "pytest-cov>=5.0"]
@@ -73,7 +73,7 @@ requires = ["hatchling"]
 build-backend = "hatchling.build"
 
 [tool.hatch.build.targets.wheel]
-packages = ["src/rcanalyst"]
+packages = ["src/needle_mcp"]
 ```
 
 `.gitignore`:
@@ -95,10 +95,10 @@ adapters.yaml
 topology.yaml
 ```
 
-`src/rcanalyst/__init__.py`:
+`src/needle_mcp/__init__.py`:
 
 ```python
-"""rcAnalyst: generic, credential-free RCA investigation MCP server."""
+"""needle-mcp: generic, credential-free RCA investigation MCP server."""
 
 __version__ = "0.1.0"
 ```
@@ -108,7 +108,7 @@ __version__ = "0.1.0"
 `tests/test_models.py`:
 
 ```python
-from rcanalyst.models import (
+from needle_mcp.models import (
     TimeRange, CorrelationCandidate, CorrelationResult, HarEntry,
     VisualEvidenceResult, GenericQueryResult, SourceInfo, CoverageResult,
     SourceCandidate, IdentifierPlan, ValidationGap, ValidationResult,
@@ -189,12 +189,12 @@ def test_validation_gap_severity_enum():
 
 - [ ] **Step 3: Run the test to verify it fails**
 
-Run: `cd /Users/sharajrewoo/DemoReposQA/rcAnalyst && python -m pip install -e ".[dev]" && pytest tests/test_models.py -v`
-Expected: FAIL with `ModuleNotFoundError: No module named 'rcanalyst.models'`
+Run: `cd /Users/sharajrewoo/DemoReposQA/needle-mcp && python -m pip install -e ".[dev]" && pytest tests/test_models.py -v`
+Expected: FAIL with `ModuleNotFoundError: No module named 'needle_mcp.models'`
 
 - [ ] **Step 4: Implement the shared models**
 
-`src/rcanalyst/models.py`:
+`src/needle_mcp/models.py`:
 
 ```python
 from __future__ import annotations
@@ -301,7 +301,7 @@ Expected: PASS (11 tests)
 - [ ] **Step 6: Commit**
 
 ```bash
-git add pyproject.toml .gitignore src/rcanalyst/__init__.py src/rcanalyst/models.py tests/test_models.py
+git add pyproject.toml .gitignore src/needle_mcp/__init__.py src/needle_mcp/models.py tests/test_models.py
 git commit -m "feat: scaffold project and add shared pydantic models"
 ```
 
@@ -310,12 +310,12 @@ git commit -m "feat: scaffold project and add shared pydantic models"
 ## Task 2: Response bounding helper
 
 **Files:**
-- Create: `src/rcanalyst/bounding.py`
+- Create: `src/needle_mcp/bounding.py`
 - Test: `tests/test_bounding.py`
 
 **Interfaces:**
 - Consumes: nothing new
-- Produces: `bound_json(data: Any, max_chars: int = 12000) -> tuple[str, bool]` in `rcanalyst.bounding`, used by later tools that can return large payloads (`query_generic_source`).
+- Produces: `bound_json(data: Any, max_chars: int = 12000) -> tuple[str, bool]` in `needle_mcp.bounding`, used by later tools that can return large payloads (`query_generic_source`).
 
 - [ ] **Step 1: Write the failing tests**
 
@@ -323,7 +323,7 @@ git commit -m "feat: scaffold project and add shared pydantic models"
 
 ```python
 import json
-from rcanalyst.bounding import bound_json, DEFAULT_MAX_CHARS
+from needle_mcp.bounding import bound_json, DEFAULT_MAX_CHARS
 
 
 def test_small_payload_not_truncated():
@@ -360,11 +360,11 @@ def test_default_max_chars_is_12000():
 - [ ] **Step 2: Run test to verify it fails**
 
 Run: `pytest tests/test_bounding.py -v`
-Expected: FAIL with `ModuleNotFoundError: No module named 'rcanalyst.bounding'`
+Expected: FAIL with `ModuleNotFoundError: No module named 'needle_mcp.bounding'`
 
 - [ ] **Step 3: Implement bounding.py**
 
-`src/rcanalyst/bounding.py`:
+`src/needle_mcp/bounding.py`:
 
 ```python
 from __future__ import annotations
@@ -424,7 +424,7 @@ Expected: PASS (4 tests)
 - [ ] **Step 5: Commit**
 
 ```bash
-git add src/rcanalyst/bounding.py tests/test_bounding.py
+git add src/needle_mcp/bounding.py tests/test_bounding.py
 git commit -m "feat: add tiered response-bounding helper"
 ```
 
@@ -433,12 +433,12 @@ git commit -m "feat: add tiered response-bounding helper"
 ## Task 3: Security helpers (redaction + host allowlisting)
 
 **Files:**
-- Create: `src/rcanalyst/security.py`
+- Create: `src/needle_mcp/security.py`
 - Test: `tests/test_security.py`
 
 **Interfaces:**
 - Consumes: nothing new
-- Produces: `redact_headers(headers: dict, allowlist: set[str] | None = None) -> dict`, `redact_url(url: str) -> str`, `HostNotAllowedError`, `assert_host_allowed(url: str, allowed_hosts: list[str]) -> None`, `safe_encode_param(value: str) -> str`, `assert_url_structure_unchanged(built_url: str, base_url: str) -> None` — all in `rcanalyst.security`, used by `analyze_visual_evidence` (Task 6) and `query_generic_source` (Task 7).
+- Produces: `redact_headers(headers: dict, allowlist: set[str] | None = None) -> dict`, `redact_url(url: str) -> str`, `HostNotAllowedError`, `assert_host_allowed(url: str, allowed_hosts: list[str]) -> None`, `safe_encode_param(value: str) -> str`, `assert_url_structure_unchanged(built_url: str, base_url: str) -> None` — all in `needle_mcp.security`, used by `analyze_visual_evidence` (Task 6) and `query_generic_source` (Task 7).
 
 - [ ] **Step 1: Write the failing tests**
 
@@ -446,7 +446,7 @@ git commit -m "feat: add tiered response-bounding helper"
 
 ```python
 import pytest
-from rcanalyst.security import (
+from needle_mcp.security import (
     redact_headers, redact_url, assert_host_allowed, safe_encode_param,
     assert_url_structure_unchanged, HostNotAllowedError,
     DEFAULT_HEADER_ALLOWLIST, NEVER_RETURN_HEADERS,
@@ -530,11 +530,11 @@ def test_assert_url_structure_unchanged_rejects_scheme_downgrade():
 - [ ] **Step 2: Run test to verify it fails**
 
 Run: `pytest tests/test_security.py -v`
-Expected: FAIL with `ModuleNotFoundError: No module named 'rcanalyst.security'`
+Expected: FAIL with `ModuleNotFoundError: No module named 'needle_mcp.security'`
 
 - [ ] **Step 3: Implement security.py**
 
-`src/rcanalyst/security.py`:
+`src/needle_mcp/security.py`:
 
 ```python
 from __future__ import annotations
@@ -622,7 +622,7 @@ Expected: PASS (13 tests)
 - [ ] **Step 5: Commit**
 
 ```bash
-git add src/rcanalyst/security.py tests/test_security.py
+git add src/needle_mcp/security.py tests/test_security.py
 git commit -m "feat: add header redaction and host-allowlist security helpers"
 ```
 
@@ -631,14 +631,14 @@ git commit -m "feat: add header redaction and host-allowlist security helpers"
 ## Task 4: Config loading (adapters.yaml, topology.yaml) + example files
 
 **Files:**
-- Create: `src/rcanalyst/config.py`
+- Create: `src/needle_mcp/config.py`
 - Create: `adapters.example.yaml`
 - Create: `topology.example.yaml`
 - Test: `tests/test_config.py`
 
 **Interfaces:**
 - Consumes: nothing new
-- Produces: `AdapterConfig`, `AdaptersFile`, `SurfaceCoverage`, `TopologyFile` (pydantic models), `load_adapters(path) -> AdaptersFile`, `load_topology(path) -> TopologyFile`, `resolve_adapter_credential(adapter: AdapterConfig) -> str | None` — all in `rcanalyst.config`. Used by `query_generic_source` (Task 7), `get_coverage` (Task 8), and `server.py` (Task 10).
+- Produces: `AdapterConfig`, `AdaptersFile`, `SurfaceCoverage`, `TopologyFile` (pydantic models), `load_adapters(path) -> AdaptersFile`, `load_topology(path) -> TopologyFile`, `resolve_adapter_credential(adapter: AdapterConfig) -> str | None` — all in `needle_mcp.config`. Used by `query_generic_source` (Task 7), `get_coverage` (Task 8), and `server.py` (Task 10).
 
 - [ ] **Step 1: Write the failing tests**
 
@@ -647,7 +647,7 @@ git commit -m "feat: add header redaction and host-allowlist security helpers"
 ```python
 from pathlib import Path
 import pytest
-from rcanalyst.config import (
+from needle_mcp.config import (
     AdapterConfig, AdaptersFile, SurfaceCoverage, TopologyFile,
     load_adapters, load_topology, resolve_adapter_credential,
 )
@@ -736,11 +736,11 @@ def test_example_topology_file_parses():
 - [ ] **Step 2: Run test to verify it fails**
 
 Run: `pytest tests/test_config.py -v`
-Expected: FAIL with `ModuleNotFoundError: No module named 'rcanalyst.config'`
+Expected: FAIL with `ModuleNotFoundError: No module named 'needle_mcp.config'`
 
 - [ ] **Step 3: Implement config.py**
 
-`src/rcanalyst/config.py`:
+`src/needle_mcp/config.py`:
 
 ```python
 from __future__ import annotations
@@ -898,7 +898,7 @@ Expected: PASS (9 tests)
 - [ ] **Step 5: Commit**
 
 ```bash
-git add src/rcanalyst/config.py adapters.example.yaml topology.example.yaml tests/test_config.py
+git add src/needle_mcp/config.py adapters.example.yaml topology.example.yaml tests/test_config.py
 git commit -m "feat: add adapters.yaml/topology.yaml config loading with example files"
 ```
 
@@ -907,20 +907,20 @@ git commit -m "feat: add adapters.yaml/topology.yaml config loading with example
 ## Task 5: `correlate_ids` tool
 
 **Files:**
-- Create: `src/rcanalyst/tools/__init__.py`
-- Create: `src/rcanalyst/tools/correlate_ids.py`
+- Create: `src/needle_mcp/tools/__init__.py`
+- Create: `src/needle_mcp/tools/correlate_ids.py`
 - Test: `tests/test_correlate_ids.py`
 
 **Interfaces:**
-- Consumes: `CorrelationCandidate`, `CorrelationResult` from `rcanalyst.models` (Task 1)
-- Produces: `correlate_ids(evidence_snippets: list[str]) -> CorrelationResult` and `normalize_identifier(value: str) -> list[str]`, plus the module constants `KEY_PATTERNS`, `ASYNC_KEYS`, `DENYLIST`, in `rcanalyst.tools.correlate_ids`. Used by `server.py` (Task 10) and `plan_investigation` (Task 9A).
+- Consumes: `CorrelationCandidate`, `CorrelationResult` from `needle_mcp.models` (Task 1)
+- Produces: `correlate_ids(evidence_snippets: list[str]) -> CorrelationResult` and `normalize_identifier(value: str) -> list[str]`, plus the module constants `KEY_PATTERNS`, `ASYNC_KEYS`, `DENYLIST`, in `needle_mcp.tools.correlate_ids`. Used by `server.py` (Task 10) and `plan_investigation` (Task 9A).
 
 - [ ] **Step 1: Write the failing tests**
 
 `tests/test_correlate_ids.py`:
 
 ```python
-from rcanalyst.tools.correlate_ids import correlate_ids
+from needle_mcp.tools.correlate_ids import correlate_ids
 
 
 def test_extracts_named_key_request_id():
@@ -1002,23 +1002,23 @@ def test_no_matches_returns_empty_candidates():
 - [ ] **Step 2: Run test to verify it fails**
 
 Run: `pytest tests/test_correlate_ids.py -v`
-Expected: FAIL with `ModuleNotFoundError: No module named 'rcanalyst.tools'`
+Expected: FAIL with `ModuleNotFoundError: No module named 'needle_mcp.tools'`
 
 - [ ] **Step 3: Implement correlate_ids.py**
 
-`src/rcanalyst/tools/__init__.py`:
+`src/needle_mcp/tools/__init__.py`:
 
 ```python
-"""Pure, MCP-independent business logic for each rcAnalyst tool."""
+"""Pure, MCP-independent business logic for each needle-mcp tool."""
 ```
 
-`src/rcanalyst/tools/correlate_ids.py`:
+`src/needle_mcp/tools/correlate_ids.py`:
 
 ```python
 from __future__ import annotations
 import re
 from datetime import datetime, timedelta
-from rcanalyst.models import CorrelationCandidate, CorrelationResult
+from needle_mcp.models import CorrelationCandidate, CorrelationResult
 
 KEY_PATTERNS: dict[str, re.Pattern] = {
     "x-request-id": re.compile(r"x-request-id[=:]\s*\"?([A-Za-z0-9\-]{6,})\"?", re.IGNORECASE),
@@ -1129,7 +1129,7 @@ Expected: PASS (9 tests)
 - [ ] **Step 5: Commit**
 
 ```bash
-git add src/rcanalyst/tools/__init__.py src/rcanalyst/tools/correlate_ids.py tests/test_correlate_ids.py
+git add src/needle_mcp/tools/__init__.py src/needle_mcp/tools/correlate_ids.py tests/test_correlate_ids.py
 git commit -m "feat: add correlate_ids tool with name-keyed extraction and async-widened windows"
 ```
 
@@ -1138,12 +1138,12 @@ git commit -m "feat: add correlate_ids tool with name-keyed extraction and async
 ## Task 6: `analyze_visual_evidence` tool
 
 **Files:**
-- Create: `src/rcanalyst/tools/analyze_visual_evidence.py`
+- Create: `src/needle_mcp/tools/analyze_visual_evidence.py`
 - Test: `tests/test_analyze_visual_evidence.py`
 
 **Interfaces:**
-- Consumes: `HarEntry`, `VisualEvidenceResult` from `rcanalyst.models` (Task 1); `redact_headers`, `redact_url` from `rcanalyst.security` (Task 3)
-- Produces: `analyze_visual_evidence(context: str, image_base64: str | None = None, har_json: str | None = None, har_path: str | None = None, slow_threshold_ms: float = 1000) -> VisualEvidenceResult` in `rcanalyst.tools.analyze_visual_evidence`, used by `server.py` (Task 10).
+- Consumes: `HarEntry`, `VisualEvidenceResult` from `needle_mcp.models` (Task 1); `redact_headers`, `redact_url` from `needle_mcp.security` (Task 3)
+- Produces: `analyze_visual_evidence(context: str, image_base64: str | None = None, har_json: str | None = None, har_path: str | None = None, slow_threshold_ms: float = 1000) -> VisualEvidenceResult` in `needle_mcp.tools.analyze_visual_evidence`, used by `server.py` (Task 10).
 
 - [ ] **Step 1: Write the failing tests**
 
@@ -1151,7 +1151,7 @@ git commit -m "feat: add correlate_ids tool with name-keyed extraction and async
 
 ```python
 import json
-from rcanalyst.tools.analyze_visual_evidence import analyze_visual_evidence
+from needle_mcp.tools.analyze_visual_evidence import analyze_visual_evidence
 
 SAMPLE_HAR = {
     "log": {
@@ -1234,17 +1234,17 @@ def test_no_input_returns_empty_result():
 - [ ] **Step 2: Run test to verify it fails**
 
 Run: `pytest tests/test_analyze_visual_evidence.py -v`
-Expected: FAIL with `ModuleNotFoundError: No module named 'rcanalyst.tools.analyze_visual_evidence'`
+Expected: FAIL with `ModuleNotFoundError: No module named 'needle_mcp.tools.analyze_visual_evidence'`
 
 - [ ] **Step 3: Implement analyze_visual_evidence.py**
 
-`src/rcanalyst/tools/analyze_visual_evidence.py`:
+`src/needle_mcp/tools/analyze_visual_evidence.py`:
 
 ```python
 from __future__ import annotations
 import json
-from rcanalyst.models import HarEntry, VisualEvidenceResult
-from rcanalyst.security import redact_headers, redact_url
+from needle_mcp.models import HarEntry, VisualEvidenceResult
+from needle_mcp.security import redact_headers, redact_url
 
 SLOW_THRESHOLD_MS_DEFAULT = 1000
 CORRELATION_HEADER_NAMES = {
@@ -1328,7 +1328,7 @@ Expected: PASS (8 tests)
 - [ ] **Step 5: Commit**
 
 ```bash
-git add src/rcanalyst/tools/analyze_visual_evidence.py tests/test_analyze_visual_evidence.py
+git add src/needle_mcp/tools/analyze_visual_evidence.py tests/test_analyze_visual_evidence.py
 git commit -m "feat: add analyze_visual_evidence tool with mandatory HAR redaction"
 ```
 
@@ -1337,12 +1337,12 @@ git commit -m "feat: add analyze_visual_evidence tool with mandatory HAR redacti
 ## Task 7: `query_generic_source` and `list_generic_sources` tools
 
 **Files:**
-- Create: `src/rcanalyst/tools/query_generic_source.py`
+- Create: `src/needle_mcp/tools/query_generic_source.py`
 - Test: `tests/test_query_generic_source.py`
 
 **Interfaces:**
-- Consumes: `AdapterConfig` from `rcanalyst.config` (Task 4), `TimeRange`, `GenericQueryResult`, `SourceInfo` from `rcanalyst.models` (Task 1), `assert_host_allowed`, `safe_encode_param`, `assert_url_structure_unchanged`, `HostNotAllowedError` from `rcanalyst.security` (Task 3), `bound_json` from `rcanalyst.bounding` (Task 2)
-- Produces: `query_generic_source(adapter: AdapterConfig, params: dict, time_range: TimeRange, allowed_hosts: list[str], cursor: str | None = None) -> GenericQueryResult` and `list_generic_sources(adapters: list[AdapterConfig]) -> list[dict]` in `rcanalyst.tools.query_generic_source`, used by `server.py` (Task 10).
+- Consumes: `AdapterConfig` from `needle_mcp.config` (Task 4), `TimeRange`, `GenericQueryResult`, `SourceInfo` from `needle_mcp.models` (Task 1), `assert_host_allowed`, `safe_encode_param`, `assert_url_structure_unchanged`, `HostNotAllowedError` from `needle_mcp.security` (Task 3), `bound_json` from `needle_mcp.bounding` (Task 2)
+- Produces: `query_generic_source(adapter: AdapterConfig, params: dict, time_range: TimeRange, allowed_hosts: list[str], cursor: str | None = None) -> GenericQueryResult` and `list_generic_sources(adapters: list[AdapterConfig]) -> list[dict]` in `needle_mcp.tools.query_generic_source`, used by `server.py` (Task 10).
 
 - [ ] **Step 1: Write the failing tests**
 
@@ -1353,9 +1353,9 @@ import json
 import threading
 from http.server import BaseHTTPRequestHandler, HTTPServer
 import pytest
-from rcanalyst.config import AdapterConfig
-from rcanalyst.models import TimeRange
-from rcanalyst.tools.query_generic_source import query_generic_source, list_generic_sources
+from needle_mcp.config import AdapterConfig
+from needle_mcp.models import TimeRange
+from needle_mcp.tools.query_generic_source import query_generic_source, list_generic_sources
 
 
 class _MockHandler(BaseHTTPRequestHandler):
@@ -1479,11 +1479,11 @@ def test_list_generic_sources_shape(mock_server):
 - [ ] **Step 2: Run test to verify it fails**
 
 Run: `pytest tests/test_query_generic_source.py -v`
-Expected: FAIL with `ModuleNotFoundError: No module named 'rcanalyst.tools.query_generic_source'`
+Expected: FAIL with `ModuleNotFoundError: No module named 'needle_mcp.tools.query_generic_source'`
 
 - [ ] **Step 3: Implement query_generic_source.py**
 
-`src/rcanalyst/tools/query_generic_source.py`:
+`src/needle_mcp/tools/query_generic_source.py`:
 
 ```python
 from __future__ import annotations
@@ -1492,10 +1492,10 @@ import json
 import os
 import urllib.error
 import urllib.request
-from rcanalyst.bounding import bound_json
-from rcanalyst.config import AdapterConfig, resolve_adapter_credential
-from rcanalyst.models import GenericQueryResult, TimeRange
-from rcanalyst.security import (
+from needle_mcp.bounding import bound_json
+from needle_mcp.config import AdapterConfig, resolve_adapter_credential
+from needle_mcp.models import GenericQueryResult, TimeRange
+from needle_mcp.security import (
     assert_host_allowed, safe_encode_param, assert_url_structure_unchanged,
     HostNotAllowedError,
 )
@@ -1636,7 +1636,7 @@ Expected: PASS (7 tests)
 - [ ] **Step 5: Commit**
 
 ```bash
-git add src/rcanalyst/tools/query_generic_source.py tests/test_query_generic_source.py
+git add src/needle_mcp/tools/query_generic_source.py tests/test_query_generic_source.py
 git commit -m "feat: add query_generic_source and list_generic_sources tools with SSRF hardening"
 ```
 
@@ -1645,20 +1645,20 @@ git commit -m "feat: add query_generic_source and list_generic_sources tools wit
 ## Task 8: `get_coverage` tool
 
 **Files:**
-- Create: `src/rcanalyst/tools/get_coverage.py`
+- Create: `src/needle_mcp/tools/get_coverage.py`
 - Test: `tests/test_get_coverage.py`
 
 **Interfaces:**
-- Consumes: `TopologyFile` from `rcanalyst.config` (Task 4), `CoverageResult` from `rcanalyst.models` (Task 1)
-- Produces: `get_coverage(resource_type: str, topology: TopologyFile) -> CoverageResult` in `rcanalyst.tools.get_coverage`, used by `server.py` (Task 10).
+- Consumes: `TopologyFile` from `needle_mcp.config` (Task 4), `CoverageResult` from `needle_mcp.models` (Task 1)
+- Produces: `get_coverage(resource_type: str, topology: TopologyFile) -> CoverageResult` in `needle_mcp.tools.get_coverage`, used by `server.py` (Task 10).
 
 - [ ] **Step 1: Write the failing tests**
 
 `tests/test_get_coverage.py`:
 
 ```python
-from rcanalyst.config import TopologyFile, SurfaceCoverage
-from rcanalyst.tools.get_coverage import get_coverage
+from needle_mcp.config import TopologyFile, SurfaceCoverage
+from needle_mcp.tools.get_coverage import get_coverage
 
 
 def _topology() -> TopologyFile:
@@ -1696,16 +1696,16 @@ def test_empty_topology_is_unknown():
 - [ ] **Step 2: Run test to verify it fails**
 
 Run: `pytest tests/test_get_coverage.py -v`
-Expected: FAIL with `ModuleNotFoundError: No module named 'rcanalyst.tools.get_coverage'`
+Expected: FAIL with `ModuleNotFoundError: No module named 'needle_mcp.tools.get_coverage'`
 
 - [ ] **Step 3: Implement get_coverage.py**
 
-`src/rcanalyst/tools/get_coverage.py`:
+`src/needle_mcp/tools/get_coverage.py`:
 
 ```python
 from __future__ import annotations
-from rcanalyst.config import TopologyFile
-from rcanalyst.models import CoverageResult
+from needle_mcp.config import TopologyFile
+from needle_mcp.models import CoverageResult
 
 
 def get_coverage(resource_type: str, topology: TopologyFile) -> CoverageResult:
@@ -1730,7 +1730,7 @@ Expected: PASS (4 tests)
 - [ ] **Step 5: Commit**
 
 ```bash
-git add src/rcanalyst/tools/get_coverage.py tests/test_get_coverage.py
+git add src/needle_mcp/tools/get_coverage.py tests/test_get_coverage.py
 git commit -m "feat: add get_coverage tool for empty-is-not-absent judgements"
 ```
 
@@ -1739,19 +1739,19 @@ git commit -m "feat: add get_coverage tool for empty-is-not-absent judgements"
 ## Task 9: `validate_rca` tool
 
 **Files:**
-- Create: `src/rcanalyst/tools/validate_rca.py`
+- Create: `src/needle_mcp/tools/validate_rca.py`
 - Test: `tests/test_validate_rca.py`
 
 **Interfaces:**
-- Consumes: `ValidationGap`, `ValidationResult` from `rcanalyst.models` (Task 1)
-- Produces: `validate_rca(claim_json: dict, investigation_log: list[dict]) -> ValidationResult` in `rcanalyst.tools.validate_rca`, used by `server.py` (Task 10) and `hooks/stop_validate.py` (Task 12).
+- Consumes: `ValidationGap`, `ValidationResult` from `needle_mcp.models` (Task 1)
+- Produces: `validate_rca(claim_json: dict, investigation_log: list[dict]) -> ValidationResult` in `needle_mcp.tools.validate_rca`, used by `server.py` (Task 10) and `hooks/stop_validate.py` (Task 12).
 
 - [ ] **Step 1: Write the failing tests**
 
 `tests/test_validate_rca.py`:
 
 ```python
-from rcanalyst.tools.validate_rca import validate_rca
+from needle_mcp.tools.validate_rca import validate_rca
 
 
 def _valid_claim(**overrides) -> dict:
@@ -1878,17 +1878,17 @@ def test_required_action_surfaces_first_gap_detail():
 - [ ] **Step 2: Run test to verify it fails**
 
 Run: `pytest tests/test_validate_rca.py -v`
-Expected: FAIL with `ModuleNotFoundError: No module named 'rcanalyst.tools.validate_rca'`
+Expected: FAIL with `ModuleNotFoundError: No module named 'needle_mcp.tools.validate_rca'`
 
 - [ ] **Step 3: Implement validate_rca.py**
 
-`src/rcanalyst/tools/validate_rca.py`:
+`src/needle_mcp/tools/validate_rca.py`:
 
 ```python
 from __future__ import annotations
 import re
 from datetime import datetime
-from rcanalyst.models import ValidationGap, ValidationResult
+from needle_mcp.models import ValidationGap, ValidationResult
 
 FORWARDED_ERROR_PATTERN = re.compile(
     r"unavailable|deadlineexceeded|i/o timeout|context deadline exceeded", re.IGNORECASE
@@ -2005,7 +2005,7 @@ Expected: PASS (14 tests)
 - [ ] **Step 5: Commit**
 
 ```bash
-git add src/rcanalyst/tools/validate_rca.py tests/test_validate_rca.py
+git add src/needle_mcp/tools/validate_rca.py tests/test_validate_rca.py
 git commit -m "feat: add validate_rca deterministic envelope linter"
 ```
 
@@ -2014,12 +2014,12 @@ git commit -m "feat: add validate_rca deterministic envelope linter"
 ## Task 9A: `plan_investigation` tool (the bare-identifier entry point)
 
 **Files:**
-- Create: `src/rcanalyst/tools/plan_investigation.py`
+- Create: `src/needle_mcp/tools/plan_investigation.py`
 - Test: `tests/test_plan_investigation.py`
 
 **Interfaces:**
-- Consumes: `IdentifierPlan`, `SourceCandidate` from `rcanalyst.models` (Task 1); `normalize_identifier`, `KEY_PATTERNS`, `ASYNC_KEYS` from `rcanalyst.tools.correlate_ids` (Task 5); `AdapterConfig`, `TopologyFile` from `rcanalyst.config` (Task 4)
-- Produces: `plan_investigation(identifier: str, environment: str | None, adapters: list[AdapterConfig], topology: TopologyFile) -> IdentifierPlan` in `rcanalyst.tools.plan_investigation`, used by `server.py` (Task 10).
+- Consumes: `IdentifierPlan`, `SourceCandidate` from `needle_mcp.models` (Task 1); `normalize_identifier`, `KEY_PATTERNS`, `ASYNC_KEYS` from `needle_mcp.tools.correlate_ids` (Task 5); `AdapterConfig`, `TopologyFile` from `needle_mcp.config` (Task 4)
+- Produces: `plan_investigation(identifier: str, environment: str | None, adapters: list[AdapterConfig], topology: TopologyFile) -> IdentifierPlan` in `needle_mcp.tools.plan_investigation`, used by `server.py` (Task 10).
 
 **Why this exists:** `correlate_ids` takes snippets you have already collected — it
 is useless when a bare id *is* the starting point ("RCA for session abc-123").
@@ -2030,8 +2030,8 @@ This tool is its front half: same normalization, run in the opposite direction.
 `tests/test_plan_investigation.py`:
 
 ```python
-from rcanalyst.config import AdapterConfig, SurfaceCoverage, TopologyFile
-from rcanalyst.tools.plan_investigation import plan_investigation
+from needle_mcp.config import AdapterConfig, SurfaceCoverage, TopologyFile
+from needle_mcp.tools.plan_investigation import plan_investigation
 
 
 def _adapters() -> list[AdapterConfig]:
@@ -2132,18 +2132,18 @@ def test_environment_missing_prompts_for_it():
 - [ ] **Step 2: Run test to verify it fails**
 
 Run: `pytest tests/test_plan_investigation.py -v`
-Expected: FAIL with `ModuleNotFoundError: No module named 'rcanalyst.tools.plan_investigation'`
+Expected: FAIL with `ModuleNotFoundError: No module named 'needle_mcp.tools.plan_investigation'`
 
 - [ ] **Step 3: Implement plan_investigation.py**
 
-`src/rcanalyst/tools/plan_investigation.py`:
+`src/needle_mcp/tools/plan_investigation.py`:
 
 ```python
 from __future__ import annotations
 import re
-from rcanalyst.config import AdapterConfig, TopologyFile
-from rcanalyst.models import IdentifierPlan, SourceCandidate
-from rcanalyst.tools.correlate_ids import ASYNC_KEYS, KEY_PATTERNS, normalize_identifier
+from needle_mcp.config import AdapterConfig, TopologyFile
+from needle_mcp.models import IdentifierPlan, SourceCandidate
+from needle_mcp.tools.correlate_ids import ASYNC_KEYS, KEY_PATTERNS, normalize_identifier
 
 _UUID = re.compile(r"^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$", re.IGNORECASE)
 _W3C_TRACE = re.compile(r"^[0-9a-f]{32}$", re.IGNORECASE)
@@ -2257,7 +2257,7 @@ Expected: PASS (15 tests)
 - [ ] **Step 5: Commit**
 
 ```bash
-git add src/rcanalyst/tools/plan_investigation.py tests/test_plan_investigation.py
+git add src/needle_mcp/tools/plan_investigation.py tests/test_plan_investigation.py
 git commit -m "feat: add plan_investigation tool for bare-identifier RCA entry point"
 ```
 
@@ -2266,11 +2266,11 @@ git commit -m "feat: add plan_investigation tool for bare-identifier RCA entry p
 ## Task 10: MCP server wiring (stdio + HTTP transports)
 
 **Files:**
-- Create: `src/rcanalyst/server.py`
+- Create: `src/needle_mcp/server.py`
 - Test: `tests/test_server.py`
 
 **Interfaces:**
-- Consumes: all tool functions from Tasks 5–9A, `load_adapters`/`load_topology` from `rcanalyst.config` (Task 4)
+- Consumes: all tool functions from Tasks 5–9A, `load_adapters`/`load_topology` from `needle_mcp.config` (Task 4)
 - Produces: the `mcp` `FastMCP` instance and seven registered tools — `plan_investigation`, `correlate_ids`, `analyze_visual_evidence`, `query_generic_source`, `list_generic_sources`, `get_coverage`, `validate_rca` — plus the `main()` entrypoint referenced by `pyproject.toml`'s `[project.scripts]`.
 
 - [ ] **Step 1: Write the failing test**
@@ -2279,7 +2279,7 @@ git commit -m "feat: add plan_investigation tool for bare-identifier RCA entry p
 
 ```python
 import asyncio
-from rcanalyst.server import mcp
+from needle_mcp.server import mcp
 
 
 def test_all_expected_tools_are_registered():
@@ -2305,11 +2305,11 @@ def test_server_has_instructions_mentioning_sibling_mcps():
 - [ ] **Step 2: Run test to verify it fails**
 
 Run: `pytest tests/test_server.py -v`
-Expected: FAIL with `ModuleNotFoundError: No module named 'rcanalyst.server'`
+Expected: FAIL with `ModuleNotFoundError: No module named 'needle_mcp.server'`
 
 - [ ] **Step 3: Implement server.py**
 
-`src/rcanalyst/server.py`:
+`src/needle_mcp/server.py`:
 
 ```python
 from __future__ import annotations
@@ -2321,24 +2321,24 @@ from typing import Any
 from urllib.parse import urlparse
 
 logging.basicConfig(stream=sys.stderr, level=logging.INFO)
-logger = logging.getLogger("rcanalyst")
+logger = logging.getLogger("needle-mcp")
 
 from mcp.server.fastmcp import FastMCP  # noqa: E402
 
-from rcanalyst.config import load_adapters, load_topology, AdaptersFile  # noqa: E402
-from rcanalyst.models import TimeRange  # noqa: E402
-from rcanalyst.tools.correlate_ids import correlate_ids as _correlate_ids  # noqa: E402
-from rcanalyst.tools.analyze_visual_evidence import analyze_visual_evidence as _analyze_visual_evidence  # noqa: E402
-from rcanalyst.tools.query_generic_source import (  # noqa: E402
+from needle_mcp.config import load_adapters, load_topology, AdaptersFile  # noqa: E402
+from needle_mcp.models import TimeRange  # noqa: E402
+from needle_mcp.tools.correlate_ids import correlate_ids as _correlate_ids  # noqa: E402
+from needle_mcp.tools.analyze_visual_evidence import analyze_visual_evidence as _analyze_visual_evidence  # noqa: E402
+from needle_mcp.tools.query_generic_source import (  # noqa: E402
     query_generic_source as _query_generic_source,
     list_generic_sources as _list_generic_sources,
 )
-from rcanalyst.tools.get_coverage import get_coverage as _get_coverage  # noqa: E402
-from rcanalyst.tools.plan_investigation import plan_investigation as _plan_investigation  # noqa: E402
-from rcanalyst.tools.validate_rca import validate_rca as _validate_rca  # noqa: E402
+from needle_mcp.tools.get_coverage import get_coverage as _get_coverage  # noqa: E402
+from needle_mcp.tools.plan_investigation import plan_investigation as _plan_investigation  # noqa: E402
+from needle_mcp.tools.validate_rca import validate_rca as _validate_rca  # noqa: E402
 
 INSTRUCTIONS = (
-    "rcAnalyst provides RCA building-block tools for a Claude session "
+    "needle-mcp provides RCA building-block tools for a Claude session "
     "investigating an incident. It has no orchestration logic of its own — "
     "read the rca-methodology skill/prompt before using these tools. Prefer "
     "your own already-connected vendor MCP (Datadog, Splunk, GitLab, "
@@ -2347,22 +2347,22 @@ INSTRUCTIONS = (
     "Starting from a bare identifier (session/request/trace id) with no logs "
     "yet? Call plan_investigation first. Already holding log snippets? Use "
     "correlate_ids. Finish by calling validate_rca, and emit the envelope "
-    "fenced between BEGIN_RCANALYST_RESULT_JSON and END_RCANALYST_RESULT_JSON."
+    "fenced between BEGIN_NEEDLE_MCP_RESULT_JSON and END_NEEDLE_MCP_RESULT_JSON."
 )
 
 # An MCP server launched as a subprocess by Claude Desktop/Code inherits an
 # unpredictable cwd (often "/"), so cwd-relative config would silently never
-# resolve. RCANALYST_CONFIG_DIR is the documented knob; CLAUDE_PROJECT_DIR is
+# resolve. NEEDLE_MCP_CONFIG_DIR is the documented knob; CLAUDE_PROJECT_DIR is
 # injected by Claude Code and is the sensible default for plugin installs.
 _CONFIG_DIR = Path(
-    os.environ.get("RCANALYST_CONFIG_DIR")
+    os.environ.get("NEEDLE_MCP_CONFIG_DIR")
     or os.environ.get("CLAUDE_PROJECT_DIR")
     or Path.cwd()
 )
 ADAPTERS_PATH = _CONFIG_DIR / "adapters.yaml"
 TOPOLOGY_PATH = _CONFIG_DIR / "topology.yaml"
 
-mcp = FastMCP("rcanalyst", instructions=INSTRUCTIONS)
+mcp = FastMCP("needle-mcp", instructions=INSTRUCTIONS)
 
 
 def _adapters() -> AdaptersFile:
@@ -2452,14 +2452,14 @@ def get_coverage(resource_type: str) -> dict:
 def validate_rca(claim_json: dict[str, Any], investigation_log: list[dict[str, Any]] | None = None) -> dict:
     """Deterministically lint a draft RCA's structured claim before you post it.
     Call this before finalizing any RCA, and emit the envelope fenced between
-    BEGIN_RCANALYST_RESULT_JSON and END_RCANALYST_RESULT_JSON — on Claude Code a
+    BEGIN_NEEDLE_MCP_RESULT_JSON and END_NEEDLE_MCP_RESULT_JSON — on Claude Code a
     Stop hook re-runs this check against that block regardless."""
     return _validate_rca(claim_json, investigation_log or []).model_dump()
 
 
 def main() -> None:
     transport = "streamable-http" if len(sys.argv) > 1 and sys.argv[1] == "--http" else "stdio"
-    logger.info("Starting rcanalyst MCP server (transport=%s)", transport)
+    logger.info("Starting needle-mcp MCP server (transport=%s)", transport)
     mcp.run(transport=transport)
 
 
@@ -2480,7 +2480,7 @@ Expected: PASS (all tests across Tasks 1–10)
 - [ ] **Step 6: Commit**
 
 ```bash
-git add src/rcanalyst/server.py tests/test_server.py
+git add src/needle_mcp/server.py tests/test_server.py
 git commit -m "feat: wire all tools into MCP server with stdio/HTTP transports"
 ```
 
@@ -2504,19 +2504,19 @@ three-backtick fences intact):
 ````markdown
 ---
 name: rca-methodology
-description: Use when investigating a production incident, alert, or bug report with rcAnalyst's tools — encodes the investigation discipline that turns tool calls into a trustworthy root-cause analysis.
+description: Use when investigating a production incident, alert, or bug report with needle-mcp's tools — encodes the investigation discipline that turns tool calls into a trustworthy root-cause analysis.
 ---
 
 # RCA Methodology
 
 You are investigating a production incident. You have your own connected MCP
 tools (Datadog, Splunk, Loki, GitLab, Sourcegraph, PagerDuty, or whatever your
-session has) plus rcAnalyst's tools: `plan_investigation`, `correlate_ids`,
+session has) plus needle-mcp's tools: `plan_investigation`, `correlate_ids`,
 `analyze_visual_evidence`, `query_generic_source`, `list_generic_sources`,
 `get_coverage`, `validate_rca`.
 
-rcAnalyst has no orchestration logic of its own — you decide what to query,
-how deep to go, and when to stop. rcAnalyst's tools are building blocks and a
+needle-mcp has no orchestration logic of its own — you decide what to query,
+how deep to go, and when to stop. needle-mcp's tools are building blocks and a
 final lint gate, not a substitute for your own judgment.
 
 ## Where to start, by what you were given
@@ -2524,7 +2524,7 @@ final lint gate, not a substitute for your own judgment.
 **A question in plain language** ("why is checkout 500ing in prod since 10am").
 This is the most common case. Establish the environment and the time window,
 then go straight to your own connected log/APM tools for the named service.
-rcAnalyst contributes the discipline below and the final gate — it has no
+needle-mcp contributes the discipline below and the final gate — it has no
 "search everything" tool, by design, because your vendor MCPs already do that
 better with your own credentials.
 
@@ -2658,7 +2658,7 @@ Then, as the **last thing in your turn, every time** — success, partial, or
 inconclusive — emit the structured envelope fenced with these exact sentinels:
 
 ```
-BEGIN_RCANALYST_RESULT_JSON
+BEGIN_NEEDLE_MCP_RESULT_JSON
 {
   "confidence": "strong_evidence|partial_evidence|inconclusive",
   "status": "success|partial|inconclusive",
@@ -2673,7 +2673,7 @@ BEGIN_RCANALYST_RESULT_JSON
   "hop_trace": {"hop_count": 2, "stop_reason": "terminal|vendor_boundary|hop_cap_reached"},
   "decomposed_by": "tenant_id"
 }
-END_RCANALYST_RESULT_JSON
+END_NEEDLE_MCP_RESULT_JSON
 ```
 
 The sentinels are not decoration: on Claude Code a Stop hook greps for exactly
@@ -2700,7 +2700,7 @@ git commit -m "docs: add generalized rca-methodology skill"
 - Test: `tests/test_stop_validate.py`
 
 **Interfaces:**
-- Consumes: `validate_rca` from `rcanalyst.tools.validate_rca` (Task 9)
+- Consumes: `validate_rca` from `needle_mcp.tools.validate_rca` (Task 9)
 - Produces: the plugin manifest and the Stop hook script; no other task depends on this one.
 
 - [ ] **Step 1: Write the failing tests**
@@ -2741,7 +2741,7 @@ def _run_hook(payload: dict) -> dict:
 def _fenced(envelope_text: str) -> str:
     return (
         "## RCA\nsome prose\n"
-        f"BEGIN_RCANALYST_RESULT_JSON\n{envelope_text}\nEND_RCANALYST_RESULT_JSON"
+        f"BEGIN_NEEDLE_MCP_RESULT_JSON\n{envelope_text}\nEND_NEEDLE_MCP_RESULT_JSON"
     )
 
 
@@ -2804,14 +2804,14 @@ Expected: FAIL — `hooks/stop_validate.py` does not exist yet
 
 ```json
 {
-  "name": "rcanalyst",
+  "name": "needle-mcp",
   "version": "0.1.0",
   "description": "Generic, credential-free RCA investigation tools and methodology, composing with whatever vendor MCPs are already connected.",
   "mcpServers": {
-    "rcanalyst": {
+    "needle-mcp": {
       "command": "uv",
-      "args": ["run", "--directory", "${CLAUDE_PLUGIN_ROOT}", "rcanalyst"],
-      "env": { "RCANALYST_CONFIG_DIR": "${CLAUDE_PROJECT_DIR}" }
+      "args": ["run", "--directory", "${CLAUDE_PLUGIN_ROOT}", "needle-mcp"],
+      "env": { "NEEDLE_MCP_CONFIG_DIR": "${CLAUDE_PROJECT_DIR}" }
     }
   },
   "hooks": {
@@ -2838,7 +2838,7 @@ Three things here are easy to get wrong and are all deliberate:
 - There is no `skills` key — `skills/rca-methodology/SKILL.md` is auto-discovered from the
   plugin's `skills/` directory.
 - `${CLAUDE_PLUGIN_ROOT}` and `${CLAUDE_PROJECT_DIR}` are required; bare relative paths do
-  not resolve for a plugin-launched stdio server. `uvx rcanalyst` would resolve from the
+  not resolve for a plugin-launched stdio server. `uvx needle-mcp` would resolve from the
   package index and cannot run this unpublished, plugin-local package.
 
 `hooks/stop_validate.py`:
@@ -2846,7 +2846,7 @@ Three things here are easy to get wrong and are all deliberate:
 ```python
 #!/usr/bin/env python3
 """Claude Code Stop hook: validates the just-finished turn's RCA envelope
-against rcanalyst's validate_rca gates before allowing the session to stop.
+against needle-mcp's validate_rca gates before allowing the session to stop.
 
 Input: JSON on stdin per Claude Code's Stop hook contract. Prefers
 `last_assistant_message`; falls back to walking `transcript_path` (that file is
@@ -2863,13 +2863,13 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).parent.parent / "src"))
 
-from rcanalyst.tools.validate_rca import validate_rca  # noqa: E402
+from needle_mcp.tools.validate_rca import validate_rca  # noqa: E402
 
 # Match the fenced block first, then parse what's inside it. A single regex that
 # also had to match balanced JSON would silently fail to match malformed JSON —
 # which is exactly the case that most needs to be reported.
 BLOCK_PATTERN = re.compile(
-    r"BEGIN_RCANALYST_RESULT_JSON(.*?)END_RCANALYST_RESULT_JSON", re.DOTALL
+    r"BEGIN_NEEDLE_MCP_RESULT_JSON(.*?)END_NEEDLE_MCP_RESULT_JSON", re.DOTALL
 )
 
 
@@ -2958,7 +2958,7 @@ git commit -m "feat: add Claude Code plugin bundle with Stop-hook RCA validation
 blocks — write the file with the inner three-backtick fences intact):
 
 ````markdown
-# rcAnalyst
+# needle-mcp
 
 A generic, credential-free MCP server that gives any Claude session
 (Claude Code, Claude Desktop, claude.ai) RCA-investigation building blocks —
@@ -2980,12 +2980,12 @@ you already have connected.
 
 ## Install
 
-`rcanalyst` is not published to PyPI — run it from a local checkout. `uvx
-rcanalyst` will NOT work (it resolves from the package index).
+`needle-mcp` is not published to PyPI — run it from a local checkout. `uvx
+needle-mcp` will NOT work (it resolves from the package index).
 
 ```bash
-git clone <this repo> ~/rcAnalyst
-uv run --directory ~/rcAnalyst rcanalyst --help
+git clone <this repo> ~/needle-mcp
+uv run --directory ~/needle-mcp needle-mcp --help
 ```
 
 ### Claude Code (recommended — gets enforcement)
@@ -2995,7 +2995,7 @@ Install as a plugin (bundles the MCP server, the rca-methodology skill, and a
 produced, before the turn can end):
 
 ```bash
-claude plugin install ~/rcAnalyst
+claude plugin install ~/needle-mcp
 ```
 
 ### Claude Desktop / other MCP hosts
@@ -3006,10 +3006,10 @@ path — a `uv run --directory` invocation, not `uvx`:
 ```json
 {
   "mcpServers": {
-    "rcanalyst": {
+    "needle-mcp": {
       "command": "uv",
-      "args": ["run", "--directory", "/absolute/path/to/rcAnalyst", "rcanalyst"],
-      "env": { "RCANALYST_CONFIG_DIR": "/absolute/path/to/your/config/dir" }
+      "args": ["run", "--directory", "/absolute/path/to/needle-mcp", "needle-mcp"],
+      "env": { "NEEDLE_MCP_CONFIG_DIR": "/absolute/path/to/your/config/dir" }
     }
   }
 }
@@ -3026,12 +3026,12 @@ tradeoff, not parity with the Claude Code experience.
 Run with the HTTP transport and register it as a remote MCP server:
 
 ```bash
-uv run --directory /absolute/path/to/rcAnalyst rcanalyst --http
+uv run --directory /absolute/path/to/needle-mcp needle-mcp --http
 ```
 
 ## Configure your own sources (optional)
 
-You almost certainly already have MCPs for your vendors — rcAnalyst is
+You almost certainly already have MCPs for your vendors — needle-mcp is
 designed to compose with those, not replace them. Only fill in
 `adapters.yaml` for a backend that genuinely has no MCP (an in-house log API,
 for example):
@@ -3044,7 +3044,7 @@ cp topology.example.yaml topology.yaml
 # coverage facts, add your own resource types as needed.
 ```
 
-Both files are read from `RCANALYST_CONFIG_DIR` (falling back to
+Both files are read from `NEEDLE_MCP_CONFIG_DIR` (falling back to
 `CLAUDE_PROJECT_DIR`, then the process cwd). Set it explicitly — an MCP server
 launched by a desktop host inherits an unpredictable working directory, so
 relying on cwd usually means your config is silently never found.
@@ -3052,7 +3052,7 @@ relying on cwd usually means your config is silently never found.
 ## How you actually use it
 
 **Ask a question.** The common case. You already have your vendor MCPs
-connected; rcAnalyst supplies the method and the final check.
+connected; needle-mcp supplies the method and the final check.
 
 > "Why is checkout 500ing in prod since 10am?"
 
@@ -3082,7 +3082,7 @@ redacted — the fastest path from "the UI is broken" to a backend trace id.
 
 ## 5-minute first run (zero vendor MCPs required)
 
-1. Install rcAnalyst as above — no other MCP needed for this walkthrough.
+1. Install needle-mcp as above — no other MCP needed for this walkthrough.
 2. Export your browser's Network tab as a HAR for the failing request.
 3. Ask Claude: "use analyze_visual_evidence on this HAR to find what failed."
 4. Feed the returned correlation headers/request id into `correlate_ids` if you
@@ -3090,7 +3090,7 @@ redacted — the fastest path from "the UI is broken" to a backend trace id.
 5. If you have an in-house log API, add it to `adapters.yaml` and ask Claude to
    `query_generic_source` it with the request id.
 6. Ask Claude to write the RCA — it calls `validate_rca` on its own draft and
-   emits a fenced `BEGIN_RCANALYST_RESULT_JSON` envelope before finalizing.
+   emits a fenced `BEGIN_NEEDLE_MCP_RESULT_JSON` envelope before finalizing.
 
 ## Tools
 
@@ -3138,12 +3138,12 @@ git commit -m "docs: add README with install, config, and first-run walkthrough"
 
 - [ ] **Step 1: Run the entire test suite**
 
-Run: `cd /Users/sharajrewoo/DemoReposQA/rcAnalyst && pytest -v --cov=src/rcanalyst`
+Run: `cd /Users/sharajrewoo/DemoReposQA/needle-mcp && pytest -v --cov=src/needle_mcp`
 Expected: all tests from Tasks 1–12 (including 9A) pass; no import errors.
 
 - [ ] **Step 1b: Confirm the envelope contract has not drifted**
 
-Run: `grep -rn "RCANALYST_RESULT_JSON" skills/ hooks/ src/ | sort`
+Run: `grep -rn "NEEDLE_MCP_RESULT_JSON" skills/ hooks/ src/ | sort`
 Expected: the sentinel appears in `skills/rca-methodology/SKILL.md` (what the host
 is told to emit), in `hooks/stop_validate.py` (what the hook greps for), and in
 `server.py`'s tool description. If it appears in only one of those, enforcement is
@@ -3151,12 +3151,12 @@ dead — the hook will never match a real turn.
 
 - [ ] **Step 2: Smoke-test the server starts over stdio**
 
-Run: `timeout 3 uv run --directory . rcanalyst || echo "exited as expected (no client connected)"`
+Run: `timeout 3 uv run --directory . needle-mcp || echo "exited as expected (no client connected)"`
 Expected: no Python traceback; the process starts and waits on stdio until the timeout kills it.
 
 - [ ] **Step 3: Verify no stray stdout writes exist outside the MCP protocol**
 
-Run: `grep -rn "print(" src/rcanalyst/ | grep -v "^src/rcanalyst/server.py"`
+Run: `grep -rn "print(" src/needle_mcp/ | grep -v "^src/needle_mcp/server.py"`
 Expected: no output (all logging goes through the `logging` module to stderr, per Global Constraints; `hooks/stop_validate.py`'s two intentional `print()` calls are the hook's documented stdout contract with Claude Code and are excluded from `src/`).
 
 - [ ] **Step 4: Final commit**

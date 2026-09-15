@@ -1,7 +1,7 @@
 from __future__ import annotations
 import re
 from datetime import datetime
-from rcanalyst.models import ValidationGap, ValidationResult
+from needle_mcp.models import ValidationGap, ValidationResult
 
 FORWARDED_ERROR_PATTERN = re.compile(
     r"unavailable|deadlineexceeded|i/o timeout|context deadline exceeded", re.IGNORECASE

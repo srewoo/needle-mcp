@@ -1,6 +1,6 @@
 from __future__ import annotations
-from rcanalyst.config import TopologyFile
-from rcanalyst.models import CoverageResult
+from needle_mcp.config import TopologyFile
+from needle_mcp.models import CoverageResult
 
 
 def get_coverage(resource_type: str, topology: TopologyFile) -> CoverageResult:

@@ -1,5 +1,5 @@
-from rcanalyst.config import TopologyFile, SurfaceCoverage
-from rcanalyst.tools.get_coverage import get_coverage
+from needle_mcp.config import TopologyFile, SurfaceCoverage
+from needle_mcp.tools.get_coverage import get_coverage
 
 
 def _topology() -> TopologyFile:

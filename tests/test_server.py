@@ -3,8 +3,8 @@ import json
 import textwrap
 from pathlib import Path
 
-from rcanalyst import server
-from rcanalyst.server import METHODOLOGY_URI, mcp
+from needle_mcp import server
+from needle_mcp.server import METHODOLOGY_URI, mcp
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
 
@@ -40,7 +40,7 @@ def test_correlate_ids_wrapper_surfaces_the_known_id():
 def test_get_coverage_wrapper_flags_unknown_resource_type(monkeypatch, tmp_path):
     # No topology.yaml at all under this config dir -> load_topology returns an
     # empty TopologyFile -> every resource type is unknown_coverage=True.
-    monkeypatch.setenv("RCANALYST_CONFIG_DIR", str(tmp_path))
+    monkeypatch.setenv("NEEDLE_MCP_CONFIG_DIR", str(tmp_path))
     parsed = _call("get_coverage", {"resource_type": "airflow_task"})
     assert parsed["unknown_coverage"] is True
 
@@ -52,7 +52,7 @@ def test_validate_rca_wrapper_rejects_an_empty_claim():
 
 
 def test_plan_investigation_wrapper_classifies_a_uuid(monkeypatch, tmp_path):
-    monkeypatch.setenv("RCANALYST_CONFIG_DIR", str(tmp_path))
+    monkeypatch.setenv("NEEDLE_MCP_CONFIG_DIR", str(tmp_path))
     parsed = _call("plan_investigation", {"identifier": "550e8400-e29b-41d4-a716-446655440000"})
     assert parsed["identifier_kind"] == "uuid"
 
@@ -63,14 +63,14 @@ def test_analyze_visual_evidence_wrapper_returns_empty_entries_on_empty_input():
 
 
 def test_list_generic_sources_wrapper_returns_a_list(monkeypatch, tmp_path):
-    monkeypatch.setenv("RCANALYST_CONFIG_DIR", str(tmp_path))
+    monkeypatch.setenv("NEEDLE_MCP_CONFIG_DIR", str(tmp_path))
     parsed = _call("list_generic_sources", {})
     assert isinstance(parsed, list)
     assert parsed == []
 
 
 def test_query_generic_source_wrapper_reports_unknown_source(monkeypatch, tmp_path):
-    monkeypatch.setenv("RCANALYST_CONFIG_DIR", str(tmp_path))
+    monkeypatch.setenv("NEEDLE_MCP_CONFIG_DIR", str(tmp_path))
     parsed = _call("query_generic_source", {
         "source": "nonexistent-source", "params": {},
         "start": "2026-09-15T00:00:00Z", "end": "2026-09-15T01:00:00Z",
@@ -79,10 +79,10 @@ def test_query_generic_source_wrapper_reports_unknown_source(monkeypatch, tmp_pa
 
 
 def test_config_dir_resolves_adapters_path_under_env_var(monkeypatch, tmp_path):
-    """RCANALYST_CONFIG_DIR is safety-critical: an MCP server launched as a
+    """NEEDLE_MCP_CONFIG_DIR is safety-critical: an MCP server launched as a
     subprocess inherits an unpredictable cwd, so this must actually be honored
     at call time, not baked in at import time."""
-    monkeypatch.setenv("RCANALYST_CONFIG_DIR", str(tmp_path))
+    monkeypatch.setenv("NEEDLE_MCP_CONFIG_DIR", str(tmp_path))
     (tmp_path / "adapters.yaml").write_text(textwrap.dedent("""\
         sources:
           - name: my-source
@@ -108,7 +108,7 @@ def test_server_instructions_state_the_load_bearing_guidance():
     assert "query_generic_source" in text and "ONLY when no such vendor MCP" in text
     assert "plan_investigation" in text and "correlate_ids" in text
     assert "validate_rca" in text
-    assert "BEGIN_RCANALYST_RESULT_JSON" in text and "END_RCANALYST_RESULT_JSON" in text
+    assert "BEGIN_NEEDLE_MCP_RESULT_JSON" in text and "END_NEEDLE_MCP_RESULT_JSON" in text
 
 
 # --- Methodology delivery on non-Claude-Code hosts (spec §3) ------------------
@@ -133,8 +133,8 @@ def test_methodology_resource_is_listed():
 def test_methodology_resource_body_carries_the_envelope_contract():
     contents = asyncio.run(mcp.read_resource(METHODOLOGY_URI))
     body = "".join(c.content for c in contents)
-    assert "BEGIN_RCANALYST_RESULT_JSON" in body
-    assert "END_RCANALYST_RESULT_JSON" in body
+    assert "BEGIN_NEEDLE_MCP_RESULT_JSON" in body
+    assert "END_NEEDLE_MCP_RESULT_JSON" in body
 
 
 def test_methodology_prompt_and_resource_share_one_source_of_truth():
@@ -151,13 +151,13 @@ def test_methodology_text_degrades_when_the_skill_file_is_missing(monkeypatch, t
     """A missing skill file must not crash the server on a prompt/resource read."""
     monkeypatch.setattr(server, "METHODOLOGY_CANDIDATES", (tmp_path / "nope" / "SKILL.md",))
     text = server._methodology_text()
-    assert "BEGIN_RCANALYST_RESULT_JSON" in text
+    assert "BEGIN_NEEDLE_MCP_RESULT_JSON" in text
 
 
 def test_methodology_path_does_not_depend_on_cwd(monkeypatch, tmp_path):
     """An MCP server inherits an unpredictable cwd; resolution must not use it."""
     monkeypatch.chdir(tmp_path)
-    assert "BEGIN_RCANALYST_RESULT_JSON" in server._methodology_text()
+    assert "BEGIN_NEEDLE_MCP_RESULT_JSON" in server._methodology_text()
 
 
 # --- Arguments as they arrive over the wire ----------------------------------
@@ -221,7 +221,7 @@ def test_validate_rca_accepts_a_structured_claim_over_the_wire():
 def test_query_generic_source_accepts_dict_params_over_the_wire(monkeypatch, tmp_path):
     """params is dict-typed; confirm the unknown-source path is reached rather
     than an argument-validation error."""
-    monkeypatch.setenv("RCANALYST_CONFIG_DIR", str(tmp_path))
+    monkeypatch.setenv("NEEDLE_MCP_CONFIG_DIR", str(tmp_path))
     parsed = _call("query_generic_source", {
         "source": "nope", "params": {"query": "checkout"},
         "start": "2026-09-15T10:00:00Z", "end": "2026-09-15T10:10:00Z",

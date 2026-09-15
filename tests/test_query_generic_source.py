@@ -2,11 +2,11 @@ import json
 import threading
 from http.server import BaseHTTPRequestHandler, HTTPServer
 import pytest
-from rcanalyst.config import AdapterConfig
+from needle_mcp.config import AdapterConfig
 from urllib.parse import urlparse
 
-from rcanalyst.models import SourceInfo, TimeRange
-from rcanalyst.tools.query_generic_source import query_generic_source, list_generic_sources, resolve_adapter
+from needle_mcp.models import SourceInfo, TimeRange
+from needle_mcp.tools.query_generic_source import query_generic_source, list_generic_sources, resolve_adapter
 
 
 class _MockHandler(BaseHTTPRequestHandler):
@@ -267,12 +267,12 @@ def test_pre_request_host_check_still_uses_the_full_allowlist(mock_server):
 def test_basic_auth_with_unset_env_vars_reports_the_env_var_not_an_empty_credential(mock_server, monkeypatch):
     """Sending Basic base64(":") gets a 401 from the vendor and leaves the
     operator debugging their query instead of their environment."""
-    monkeypatch.delenv("RCANALYST_TEST_BASIC_USER", raising=False)
-    monkeypatch.delenv("RCANALYST_TEST_BASIC_PASS", raising=False)
+    monkeypatch.delenv("NEEDLE_MCP_TEST_BASIC_USER", raising=False)
+    monkeypatch.delenv("NEEDLE_MCP_TEST_BASIC_PASS", raising=False)
     adapter = _adapter_for(
         mock_server, auth_mode="basic",
-        basic_user_env_var="RCANALYST_TEST_BASIC_USER",
-        basic_pass_env_var="RCANALYST_TEST_BASIC_PASS",
+        basic_user_env_var="NEEDLE_MCP_TEST_BASIC_USER",
+        basic_pass_env_var="NEEDLE_MCP_TEST_BASIC_PASS",
     )
     result = query_generic_source(
         adapter=adapter, params={"query": "checkout"},
@@ -281,7 +281,7 @@ def test_basic_auth_with_unset_env_vars_reports_the_env_var_not_an_empty_credent
     )
     assert result.rows == []
     assert result.error is not None
-    assert "RCANALYST_TEST_BASIC_USER" in result.error
+    assert "NEEDLE_MCP_TEST_BASIC_USER" in result.error
     assert "Rejected param" not in result.error
 
 
@@ -296,12 +296,12 @@ def test_basic_auth_without_configured_env_var_names_the_missing_field(mock_serv
 
 
 def test_basic_auth_succeeds_when_both_env_vars_are_set(mock_server, monkeypatch):
-    monkeypatch.setenv("RCANALYST_TEST_BASIC_USER", "svc")
-    monkeypatch.setenv("RCANALYST_TEST_BASIC_PASS", "hunter2")
+    monkeypatch.setenv("NEEDLE_MCP_TEST_BASIC_USER", "svc")
+    monkeypatch.setenv("NEEDLE_MCP_TEST_BASIC_PASS", "hunter2")
     adapter = _adapter_for(
         mock_server, auth_mode="basic",
-        basic_user_env_var="RCANALYST_TEST_BASIC_USER",
-        basic_pass_env_var="RCANALYST_TEST_BASIC_PASS",
+        basic_user_env_var="NEEDLE_MCP_TEST_BASIC_USER",
+        basic_pass_env_var="NEEDLE_MCP_TEST_BASIC_PASS",
     )
     result = query_generic_source(
         adapter=adapter, params={"query": "checkout"},
@@ -315,15 +315,15 @@ def test_basic_auth_succeeds_when_both_env_vars_are_set(mock_server, monkeypatch
 def test_static_header_missing_credential_is_not_reported_as_a_rejected_param(mock_server, monkeypatch):
     """The static_header path already failed loudly; it just failed with the
     wrong words — 'Rejected param' points at the query, not the environment."""
-    monkeypatch.delenv("RCANALYST_TEST_TOKEN", raising=False)
-    adapter = _adapter_for(mock_server, auth_mode="static_header", auth_env_var="RCANALYST_TEST_TOKEN")
+    monkeypatch.delenv("NEEDLE_MCP_TEST_TOKEN", raising=False)
+    adapter = _adapter_for(mock_server, auth_mode="static_header", auth_env_var="NEEDLE_MCP_TEST_TOKEN")
     result = query_generic_source(
         adapter=adapter, params={"query": "checkout"},
         time_range=TimeRange(start="2026-09-15T00:00:00Z", end="2026-09-15T01:00:00Z"),
         allowed_hosts=["127.0.0.1"],
     )
     assert "Rejected param" not in (result.error or "")
-    assert "RCANALYST_TEST_TOKEN" in (result.error or "")
+    assert "NEEDLE_MCP_TEST_TOKEN" in (result.error or "")
     assert "credential" in (result.error or "").lower()
 
 

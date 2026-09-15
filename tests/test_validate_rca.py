@@ -1,5 +1,5 @@
-from rcanalyst.models import ValidationResult
-from rcanalyst.tools.validate_rca import validate_rca
+from needle_mcp.models import ValidationResult
+from needle_mcp.tools.validate_rca import validate_rca
 
 
 def _valid_claim(**overrides) -> dict:

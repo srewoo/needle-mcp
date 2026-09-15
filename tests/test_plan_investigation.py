@@ -1,6 +1,6 @@
-from rcanalyst.config import AdapterConfig, SurfaceCoverage, TopologyFile
-from rcanalyst.tools.correlate_ids import KEY_PATTERNS
-from rcanalyst.tools.plan_investigation import (
+from needle_mcp.config import AdapterConfig, SurfaceCoverage, TopologyFile
+from needle_mcp.tools.correlate_ids import KEY_PATTERNS
+from needle_mcp.tools.plan_investigation import (
     ASYNC_WINDOW_HINT,
     SYNC_WINDOW_HINT,
     plan_investigation,

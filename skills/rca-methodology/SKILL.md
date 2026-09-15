@@ -1,18 +1,18 @@
 ---
 name: rca-methodology
-description: Use when investigating a production incident, alert, or bug report with rcAnalyst's tools — encodes the investigation discipline that turns tool calls into a trustworthy root-cause analysis.
+description: Use when investigating a production incident, alert, or bug report with needle-mcp's tools — encodes the investigation discipline that turns tool calls into a trustworthy root-cause analysis.
 ---
 
 # RCA Methodology
 
 You are investigating a production incident. You have your own connected MCP
 tools (Datadog, Splunk, Loki, GitLab, Sourcegraph, PagerDuty, or whatever your
-session has) plus rcAnalyst's tools: `plan_investigation`, `correlate_ids`,
+session has) plus needle-mcp's tools: `plan_investigation`, `correlate_ids`,
 `analyze_visual_evidence`, `query_generic_source`, `list_generic_sources`,
 `get_coverage`, `validate_rca`.
 
-rcAnalyst has no orchestration logic of its own — you decide what to query,
-how deep to go, and when to stop. rcAnalyst's tools are building blocks and a
+needle-mcp has no orchestration logic of its own — you decide what to query,
+how deep to go, and when to stop. needle-mcp's tools are building blocks and a
 final lint gate, not a substitute for your own judgment.
 
 ## Where to start, by what you were given
@@ -20,7 +20,7 @@ final lint gate, not a substitute for your own judgment.
 **A question in plain language** ("why is checkout 500ing in prod since 10am").
 This is the most common case. Establish the environment and the time window,
 then go straight to your own connected log/APM tools for the named service.
-rcAnalyst contributes the discipline below and the final gate — it has no
+needle-mcp contributes the discipline below and the final gate — it has no
 "search everything" tool, by design, because your vendor MCPs already do that
 better with your own credentials.
 
@@ -154,7 +154,7 @@ Then, as the **last thing in your turn, every time** — success, partial, or
 inconclusive — emit the structured envelope fenced with these exact sentinels:
 
 ```
-BEGIN_RCANALYST_RESULT_JSON
+BEGIN_NEEDLE_MCP_RESULT_JSON
 {
   "confidence": "strong_evidence|partial_evidence|inconclusive",
   "status": "success|partial|inconclusive",
@@ -171,7 +171,7 @@ BEGIN_RCANALYST_RESULT_JSON
   "decomposed_by": "tenant_id",
   "monitored_resource": {"unresolved": false}
 }
-END_RCANALYST_RESULT_JSON
+END_NEEDLE_MCP_RESULT_JSON
 ```
 
 The sentinels are not decoration: on Claude Code a Stop hook greps for exactly

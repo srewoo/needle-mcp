@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """Claude Code Stop hook: validates the just-finished turn's RCA envelope
-against rcanalyst's validate_rca gates before allowing the session to stop.
+against needle-mcp's validate_rca gates before allowing the session to stop.
 
 Input: JSON on stdin per Claude Code's Stop hook contract. Prefers
 `last_assistant_message`; falls back to walking `transcript_path` (that file is
@@ -17,13 +17,13 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).parent.parent / "src"))
 
-from rcanalyst.tools.validate_rca import validate_rca  # noqa: E402
+from needle_mcp.tools.validate_rca import validate_rca  # noqa: E402
 
 # Match the fenced block first, then parse what's inside it. A single regex that
 # also had to match balanced JSON would silently fail to match malformed JSON —
 # which is exactly the case that most needs to be reported.
 BLOCK_PATTERN = re.compile(
-    r"BEGIN_RCANALYST_RESULT_JSON(.*?)END_RCANALYST_RESULT_JSON", re.DOTALL
+    r"BEGIN_NEEDLE_MCP_RESULT_JSON(.*?)END_NEEDLE_MCP_RESULT_JSON", re.DOTALL
 )
 
 

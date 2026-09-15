@@ -1,4 +1,4 @@
-# rcAnalyst
+# needle-mcp
 
 A generic, credential-free MCP server that gives any Claude session
 (Claude Code, Claude Desktop, claude.ai) RCA-investigation building blocks —
@@ -20,12 +20,12 @@ you already have connected.
 
 ## Install
 
-`rcanalyst` is not published to PyPI — run it from a local checkout. `uvx
-rcanalyst` will NOT work (it resolves from the package index).
+`needle-mcp` is not published to PyPI — run it from a local checkout. `uvx
+needle-mcp` will NOT work (it resolves from the package index).
 
 ```bash
-git clone <this repo> ~/rcAnalyst
-uv run --directory ~/rcAnalyst rcanalyst --help
+git clone <this repo> ~/needle-mcp
+uv run --directory ~/needle-mcp needle-mcp --help
 ```
 
 ### Claude Code (recommended — gets enforcement)
@@ -35,7 +35,7 @@ Install as a plugin (bundles the MCP server, the rca-methodology skill, and a
 produced, before the turn can end):
 
 ```bash
-claude plugin install ~/rcAnalyst
+claude plugin install ~/needle-mcp
 ```
 
 ### Claude Desktop / other MCP hosts
@@ -46,10 +46,10 @@ path — a `uv run --directory` invocation, not `uvx`:
 ```json
 {
   "mcpServers": {
-    "rcanalyst": {
+    "needle-mcp": {
       "command": "uv",
-      "args": ["run", "--directory", "/absolute/path/to/rcAnalyst", "rcanalyst"],
-      "env": { "RCANALYST_CONFIG_DIR": "/absolute/path/to/your/config/dir" }
+      "args": ["run", "--directory", "/absolute/path/to/needle-mcp", "needle-mcp"],
+      "env": { "NEEDLE_MCP_CONFIG_DIR": "/absolute/path/to/your/config/dir" }
     }
   }
 }
@@ -66,12 +66,12 @@ tradeoff, not parity with the Claude Code experience.
 Run with the HTTP transport and register it as a remote MCP server:
 
 ```bash
-uv run --directory /absolute/path/to/rcAnalyst rcanalyst --http
+uv run --directory /absolute/path/to/needle-mcp needle-mcp --http
 ```
 
 ## Configure your own sources (optional)
 
-You almost certainly already have MCPs for your vendors — rcAnalyst is
+You almost certainly already have MCPs for your vendors — needle-mcp is
 designed to compose with those, not replace them. Only fill in
 `adapters.yaml` for a backend that genuinely has no MCP (an in-house log API,
 for example):
@@ -84,7 +84,7 @@ cp topology.example.yaml topology.yaml
 # coverage facts, add your own resource types as needed.
 ```
 
-Both files are read from `RCANALYST_CONFIG_DIR` (falling back to
+Both files are read from `NEEDLE_MCP_CONFIG_DIR` (falling back to
 `CLAUDE_PROJECT_DIR`, then the process cwd). Set it explicitly — an MCP server
 launched by a desktop host inherits an unpredictable working directory, so
 relying on cwd usually means your config is silently never found.
@@ -92,7 +92,7 @@ relying on cwd usually means your config is silently never found.
 ## How you actually use it
 
 **Ask a question.** The common case. You already have your vendor MCPs
-connected; rcAnalyst supplies the method and the final check.
+connected; needle-mcp supplies the method and the final check.
 
 > "Why is checkout 500ing in prod since 10am?"
 
@@ -122,7 +122,7 @@ redacted — the fastest path from "the UI is broken" to a backend trace id.
 
 ## 5-minute first run (zero vendor MCPs required)
 
-1. Install rcAnalyst as above — no other MCP needed for this walkthrough.
+1. Install needle-mcp as above — no other MCP needed for this walkthrough.
 2. Export your browser's Network tab as a HAR for the failing request.
 3. Ask Claude: "use analyze_visual_evidence on this HAR to find what failed."
 4. Feed the returned correlation headers/request id into `correlate_ids` if you
@@ -130,7 +130,7 @@ redacted — the fastest path from "the UI is broken" to a backend trace id.
 5. If you have an in-house log API, add it to `adapters.yaml` and ask Claude to
    `query_generic_source` it with the request id.
 6. Ask Claude to write the RCA — it calls `validate_rca` on its own draft and
-   emits a fenced `BEGIN_RCANALYST_RESULT_JSON` envelope before finalizing.
+   emits a fenced `BEGIN_NEEDLE_MCP_RESULT_JSON` envelope before finalizing.
 
 ## Tools
 

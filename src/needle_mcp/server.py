@@ -8,25 +8,25 @@ from typing import Any
 from urllib.parse import urlparse
 
 logging.basicConfig(stream=sys.stderr, level=logging.INFO)
-logger = logging.getLogger("rcanalyst")
+logger = logging.getLogger("needle-mcp")
 
 from mcp.server.fastmcp import FastMCP  # noqa: E402
 
-from rcanalyst.config import load_adapters, load_topology, AdaptersFile  # noqa: E402
-from rcanalyst.models import GenericQueryResult, TimeRange  # noqa: E402
-from rcanalyst.tools.correlate_ids import correlate_ids as _correlate_ids  # noqa: E402
-from rcanalyst.tools.analyze_visual_evidence import analyze_visual_evidence as _analyze_visual_evidence  # noqa: E402
-from rcanalyst.tools.query_generic_source import (  # noqa: E402
+from needle_mcp.config import load_adapters, load_topology, AdaptersFile  # noqa: E402
+from needle_mcp.models import GenericQueryResult, TimeRange  # noqa: E402
+from needle_mcp.tools.correlate_ids import correlate_ids as _correlate_ids  # noqa: E402
+from needle_mcp.tools.analyze_visual_evidence import analyze_visual_evidence as _analyze_visual_evidence  # noqa: E402
+from needle_mcp.tools.query_generic_source import (  # noqa: E402
     query_generic_source as _query_generic_source,
     list_generic_sources as _list_generic_sources,
     resolve_adapter as _resolve_adapter,
 )
-from rcanalyst.tools.get_coverage import get_coverage as _get_coverage  # noqa: E402
-from rcanalyst.tools.plan_investigation import plan_investigation as _plan_investigation  # noqa: E402
-from rcanalyst.tools.validate_rca import validate_rca as _validate_rca  # noqa: E402
+from needle_mcp.tools.get_coverage import get_coverage as _get_coverage  # noqa: E402
+from needle_mcp.tools.plan_investigation import plan_investigation as _plan_investigation  # noqa: E402
+from needle_mcp.tools.validate_rca import validate_rca as _validate_rca  # noqa: E402
 
 INSTRUCTIONS = (
-    "rcAnalyst provides RCA building-block tools for a Claude session "
+    "needle-mcp provides RCA building-block tools for a Claude session "
     "investigating an incident. It has no orchestration logic of its own — "
     "read the rca-methodology skill/prompt before using these tools. Prefer "
     "your own already-connected vendor MCP (Datadog, Splunk, GitLab, "
@@ -35,21 +35,21 @@ INSTRUCTIONS = (
     "Starting from a bare identifier (session/request/trace id) with no logs "
     "yet? Call plan_investigation first. Already holding log snippets? Use "
     "correlate_ids. Finish by calling validate_rca, and emit the envelope "
-    "fenced between BEGIN_RCANALYST_RESULT_JSON and END_RCANALYST_RESULT_JSON."
+    "fenced between BEGIN_NEEDLE_MCP_RESULT_JSON and END_NEEDLE_MCP_RESULT_JSON."
 )
 
 # An MCP server launched as a subprocess by Claude Desktop/Code inherits an
 # unpredictable cwd (often "/"), so cwd-relative config would silently never
-# resolve. RCANALYST_CONFIG_DIR is the documented knob; CLAUDE_PROJECT_DIR is
+# resolve. NEEDLE_MCP_CONFIG_DIR is the documented knob; CLAUDE_PROJECT_DIR is
 # injected by Claude Code and is the sensible default for plugin installs.
 #
-# Resolved at CALL time, not import time: env vars (RCANALYST_CONFIG_DIR in
+# Resolved at CALL time, not import time: env vars (NEEDLE_MCP_CONFIG_DIR in
 # particular) can legitimately differ between calls in tests, and the project's
 # config loaders (load_adapters/load_topology) already re-read from disk on
 # every call by the same stateless design.
 def _config_dir() -> Path:
     return Path(
-        os.environ.get("RCANALYST_CONFIG_DIR")
+        os.environ.get("NEEDLE_MCP_CONFIG_DIR")
         or os.environ.get("CLAUDE_PROJECT_DIR")
         or Path.cwd()
     )
@@ -63,9 +63,9 @@ def _topology_path() -> Path:
     return _config_dir() / "topology.yaml"
 
 
-mcp = FastMCP("rcanalyst", instructions=INSTRUCTIONS)
+mcp = FastMCP("needle-mcp", instructions=INSTRUCTIONS)
 
-METHODOLOGY_URI = "rcanalyst://skills/rca-methodology"
+METHODOLOGY_URI = "needle-mcp://skills/rca-methodology"
 
 # Spec §3: on every host except Claude Code the methodology can only reach the
 # session as an MCP prompt/resource — a plain MCP server cannot drop a file into
@@ -90,7 +90,7 @@ _METHODOLOGY_MISSING = (
     "The rca-methodology skill file could not be located in this installation. "
     "Read it from the project's skills/rca-methodology/SKILL.md. Note that the "
     "RCA result envelope must be emitted fenced between "
-    "BEGIN_RCANALYST_RESULT_JSON and END_RCANALYST_RESULT_JSON."
+    "BEGIN_NEEDLE_MCP_RESULT_JSON and END_NEEDLE_MCP_RESULT_JSON."
 )
 
 
@@ -114,9 +114,9 @@ def _methodology_text() -> str:
     name="rca_methodology",
     title="RCA methodology",
     description=(
-        "The full rcAnalyst investigation discipline: the five rules, the "
+        "The full needle-mcp investigation discipline: the five rules, the "
         "environment/coverage gates, and the exact RCA result envelope schema. "
-        "Read this before using any rcAnalyst tool."
+        "Read this before using any needle-mcp tool."
     ),
 )
 def rca_methodology_prompt() -> str:
@@ -128,7 +128,7 @@ def rca_methodology_prompt() -> str:
     name="rca_methodology",
     title="RCA methodology",
     description=(
-        "The full rcAnalyst investigation discipline and RCA result envelope "
+        "The full needle-mcp investigation discipline and RCA result envelope "
         "schema (skills/rca-methodology/SKILL.md)."
     ),
     mime_type="text/markdown",
@@ -235,14 +235,14 @@ def get_coverage(resource_type: str) -> dict:
 def validate_rca(claim_json: dict[str, Any], investigation_log: list[dict[str, Any]] | None = None) -> dict:
     """Deterministically lint a draft RCA's structured claim before you post it.
     Call this before finalizing any RCA, and emit the envelope fenced between
-    BEGIN_RCANALYST_RESULT_JSON and END_RCANALYST_RESULT_JSON — on Claude Code a
+    BEGIN_NEEDLE_MCP_RESULT_JSON and END_NEEDLE_MCP_RESULT_JSON — on Claude Code a
     Stop hook re-runs this check against that block regardless."""
     return _validate_rca(claim_json, investigation_log or []).model_dump()
 
 
 def main() -> None:
     transport = "streamable-http" if len(sys.argv) > 1 and sys.argv[1] == "--http" else "stdio"
-    logger.info("Starting rcanalyst MCP server (transport=%s)", transport)
+    logger.info("Starting needle-mcp MCP server (transport=%s)", transport)
     mcp.run(transport=transport)
 
 

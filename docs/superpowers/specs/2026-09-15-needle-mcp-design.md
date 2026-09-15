@@ -1,4 +1,4 @@
-# rcAnalyst — Design Spec
+# needle-mcp — Design Spec
 
 Status: Approved for implementation planning
 Date: 2026-09-15
@@ -15,7 +15,7 @@ Its real differentiator is not the plumbing — it's `DEBUGIQ.md`'s investigatio
 discipline (the "five rules") plus three code-enforced gates that stop the
 agent from skipping that discipline.
 
-**Goal:** build `rcAnalyst`, a generic, company-agnostic RCA tool any team can
+**Goal:** build `needle-mcp`, a generic, company-agnostic RCA tool any team can
 drop into their own Claude session, with:
 - No server-side Anthropic API key or credentials of any kind.
 - No dependency on Mindtickle-specific infra (no spine graph, no hardcoded
@@ -46,7 +46,7 @@ drop into their own Claude session, with:
 └───────────────────────────┬───────────────────────────────────┘
               │ MCP (stdio, and HTTP/SSE for remote hosts)
 ┌───────────────────────────▼───────────────────────────────────┐
-│  rcAnalyst MCP server (Python, official MCP SDK), stateless   │
+│  needle-mcp MCP server (Python, official MCP SDK), stateless   │
 │  ├── tools/                                                    │
 │  │     plan_investigation.py                                   │
 │  │     correlate_ids.py                                        │
@@ -72,7 +72,7 @@ drop into their own Claude session, with:
 
 Distribution has two forms, both built from the same source tree:
 
-1. **Plain MCP server** (`uvx rcanalyst`, stdio transport; HTTP/SSE transport
+1. **Plain MCP server** (`uvx needle-mcp`, stdio transport; HTTP/SSE transport
    for claude.ai and other remote hosts) — usable by any MCP host. Methodology
    reaches the host via MCP `prompts`, `resources`, and the server's
    `initialize` `instructions` field, since a plain MCP server cannot place a
@@ -309,7 +309,7 @@ question, (b) a bare identifier → `plan_investigation`, (c) a pasted screensho
 ## 6a. The envelope contract
 
 The RCA envelope is emitted fenced between the exact sentinels
-`BEGIN_RCANALYST_RESULT_JSON` and `END_RCANALYST_RESULT_JSON`. This is a
+`BEGIN_NEEDLE_MCP_RESULT_JSON` and `END_NEEDLE_MCP_RESULT_JSON`. This is a
 two-sided contract: the skill instructs the host to emit it, and the Claude Code
 `Stop` hook greps for exactly that block to re-run `validate_rca`. If the
 sentinel exists on only one side, enforcement is silently dead — the hook never
@@ -367,14 +367,14 @@ follow-up, not v1 scope.
 ## 9. Project Layout
 
 ```
-rcAnalyst/
+needle-mcp/
 ├── pyproject.toml
 ├── README.md                        # incl. "5-minute first run, zero vendor MCPs" walkthrough
 ├── topology.example.yaml
 ├── adapters.example.yaml            # 3 working reference configs: Grafana Loki, ES/OpenSearch, Splunk REST
 ├── .claude-plugin/plugin.json
 ├── hooks/stop_validate.py
-├── src/rcanalyst/
+├── src/needle_mcp/
 │   ├── server.py                    # stdio + HTTP/SSE transports
 │   ├── tools/
 │   │   ├── plan_investigation.py

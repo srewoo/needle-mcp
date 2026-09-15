@@ -1,7 +1,7 @@
 from __future__ import annotations
 import re
 from datetime import datetime, timedelta
-from rcanalyst.models import CorrelationCandidate, CorrelationResult
+from needle_mcp.models import CorrelationCandidate, CorrelationResult
 
 KEY_PATTERNS: dict[str, re.Pattern] = {
     "x-request-id": re.compile(r"x-request-id[=:]\s*\"?([A-Za-z0-9\-]{6,})\"?", re.IGNORECASE),

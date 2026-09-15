@@ -1,5 +1,5 @@
 import pytest
-from rcanalyst.security import (
+from needle_mcp.security import (
     redact_headers, redact_url, assert_host_allowed, safe_encode_param,
     assert_url_structure_unchanged, HostNotAllowedError,
     DEFAULT_HEADER_ALLOWLIST, NEVER_RETURN_HEADERS,

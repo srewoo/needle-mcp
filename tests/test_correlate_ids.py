@@ -1,4 +1,4 @@
-from rcanalyst.tools.correlate_ids import correlate_ids
+from needle_mcp.tools.correlate_ids import correlate_ids
 
 
 def test_extracts_named_key_request_id():

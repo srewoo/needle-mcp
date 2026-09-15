@@ -1,5 +1,5 @@
 import json
-from rcanalyst.bounding import bound_json, DEFAULT_MAX_CHARS
+from needle_mcp.bounding import bound_json, DEFAULT_MAX_CHARS
 
 
 def test_small_payload_not_truncated():

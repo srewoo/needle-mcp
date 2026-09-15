@@ -1,23 +1,23 @@
 {
-  "name": "rcanalyst",
+  "name": "needle-mcp",
   "version": "0.1.0",
   "description": "Generic, credential-free RCA investigation tools and methodology, composing with whatever vendor MCPs are already connected.",
   "mcpServers": {
-    "rcanalyst": {
+    "needle-mcp": {
       "command": "uv",
       "args": [
         "run",
         "--directory",
         "${CLAUDE_PLUGIN_ROOT}",
-        "rcanalyst"
+        "needle-mcp"
       ],
       "env": {
-        "RCANALYST_CONFIG_DIR": "${CLAUDE_PROJECT_DIR}"
+        "NEEDLE_MCP_CONFIG_DIR": "${CLAUDE_PROJECT_DIR}"
       }
     }
   },
   "hooks": "./hooks/hooks.json",
   "author": {
-    "name": "rcAnalyst maintainers"
+    "name": "needle-mcp maintainers"
   }
 }

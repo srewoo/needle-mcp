@@ -5,10 +5,10 @@ import os
 import urllib.error
 import urllib.request
 from urllib.parse import urlparse
-from rcanalyst.bounding import bound_json
-from rcanalyst.config import AdapterConfig, MissingCredentialError, resolve_adapter_credential
-from rcanalyst.models import GenericQueryResult, SourceInfo, TimeRange
-from rcanalyst.security import (
+from needle_mcp.bounding import bound_json
+from needle_mcp.config import AdapterConfig, MissingCredentialError, resolve_adapter_credential
+from needle_mcp.models import GenericQueryResult, SourceInfo, TimeRange
+from needle_mcp.security import (
     assert_host_allowed, safe_encode_param, assert_url_structure_unchanged,
     HostNotAllowedError,
 )

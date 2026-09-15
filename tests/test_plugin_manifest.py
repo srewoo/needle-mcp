@@ -93,7 +93,7 @@ def test_declared_stop_hook_command_blocks_a_bad_envelope():
     """The whole point of the gate: a narration-only envelope must be blocked."""
     command = _stop_hook_commands()[0].replace("${CLAUDE_PLUGIN_ROOT}", str(REPO_ROOT))
     message = (
-        "Here is my RCA.\nBEGIN_RCANALYST_RESULT_JSON\n"
+        "Here is my RCA.\nBEGIN_NEEDLE_MCP_RESULT_JSON\n"
         # Narration wearing a JSON hat: the five required scalars, zero evidence
         # rows, no alert_window. Blocking exactly this is the gate's purpose.
         + json.dumps({
@@ -101,7 +101,7 @@ def test_declared_stop_hook_command_blocks_a_bad_envelope():
             "root_cause": "checkout was probably overloaded",
             "affected_services": ["checkout"], "environment": "prod",
         })
-        + "\nEND_RCANALYST_RESULT_JSON\n"
+        + "\nEND_NEEDLE_MCP_RESULT_JSON\n"
     )
     proc = subprocess.run(
         command, shell=True, input=json.dumps({"last_assistant_message": message}),

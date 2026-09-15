@@ -1,7 +1,7 @@
 import pytest
 from pydantic import ValidationError
 
-from rcanalyst.models import (
+from needle_mcp.models import (
     TimeRange, CorrelationCandidate, CorrelationResult, HarEntry,
     VisualEvidenceResult, GenericQueryResult, SourceInfo, CoverageResult,
     SourceCandidate, IdentifierPlan, ValidationGap, ValidationResult,

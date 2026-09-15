@@ -1,4 +1,4 @@
-# CLAUDE.md — working on rcAnalyst
+# CLAUDE.md — working on needle-mcp
 
 Orientation for an agent modifying this codebase. `README.md` covers using it;
 `skills/rca-methodology/SKILL.md` is the methodology a host Claude follows when
@@ -6,10 +6,10 @@ investigating. This file is about not breaking things.
 
 ## What this is in one paragraph
 
-rcAnalyst is a **stateless MCP server with no LLM loop and no credentials of its
+needle-mcp is a **stateless MCP server with no LLM loop and no credentials of its
 own**. The host Claude session does all reasoning. It deliberately does *not*
 reimplement vendor integrations — if the user has a Datadog/Splunk/GitLab MCP
-connected, the host calls that directly with its own credentials. rcAnalyst
+connected, the host calls that directly with its own credentials. needle-mcp
 supplies only what isn't otherwise covered: investigation methodology, identifier
 correlation, HAR parsing, a config-templated fallback HTTP client, and a
 deterministic RCA linter. Its output ceiling is therefore set by which vendor
@@ -18,7 +18,7 @@ MCPs the user has connected — that is a design property, not a defect.
 ## Layout
 
 ```
-src/rcanalyst/
+src/needle_mcp/
   server.py      MCP wiring: 7 tools + 1 prompt + 1 resource. Wrappers only.
   models.py      Shared pydantic types. A contract — renaming a field breaks callers.
   config.py      adapters.yaml / topology.yaml loading. Re-reads from disk per call.
@@ -49,7 +49,7 @@ import in `server.py`. Diagnostics go to stderr, always.
 `skills/rca-methodology/SKILL.md` (what the host is told to emit),
 `hooks/stop_validate.py` (what the hook greps for), and `server.py`'s
 `INSTRUCTIONS`. If they drift, the hook silently never matches a real turn and
-enforcement is dead with no error anywhere. `grep -rn "RCANALYST_RESULT_JSON"
+enforcement is dead with no error anywhere. `grep -rn "NEEDLE_MCP_RESULT_JSON"
 skills/ hooks/ src/` should return all three.
 
 **The envelope documented in SKILL.md must cover every field `validate_rca`
@@ -81,7 +81,7 @@ arbitrary query parameter into a credentialed request to an internal host.
 `Set-Cookie` are dropped even when a caller explicitly allowlists them. Request
 and response bodies are never returned by any tool.
 
-**Config resolves `RCANALYST_CONFIG_DIR` → `CLAUDE_PROJECT_DIR` → cwd, at call
+**Config resolves `NEEDLE_MCP_CONFIG_DIR` → `CLAUDE_PROJECT_DIR` → cwd, at call
 time.** An MCP server launched by a desktop host inherits an unpredictable working
 directory, so cwd-relative config silently never resolves. Import-time resolution
 also makes it untestable.

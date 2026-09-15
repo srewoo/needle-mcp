@@ -1,8 +1,8 @@
 from __future__ import annotations
 import json
 import os
-from rcanalyst.models import HarEntry, VisualEvidenceResult
-from rcanalyst.security import redact_headers, redact_url
+from needle_mcp.models import HarEntry, VisualEvidenceResult
+from needle_mcp.security import redact_headers, redact_url
 
 SLOW_THRESHOLD_MS_DEFAULT = 1000
 # Spec §4 anticipates 5-50MB HAR exports arriving by path (which is exactly why

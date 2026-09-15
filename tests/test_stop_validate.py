@@ -31,7 +31,7 @@ def _run_hook(payload: dict) -> dict:
 def _fenced(envelope_text: str) -> str:
     return (
         "## RCA\nsome prose\n"
-        f"BEGIN_RCANALYST_RESULT_JSON\n{envelope_text}\nEND_RCANALYST_RESULT_JSON"
+        f"BEGIN_NEEDLE_MCP_RESULT_JSON\n{envelope_text}\nEND_NEEDLE_MCP_RESULT_JSON"
     )
 
 
