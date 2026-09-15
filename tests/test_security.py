@@ -52,7 +52,14 @@ def test_safe_encode_param_allows_url_valued_query():
 
 
 def test_safe_encode_param_allows_dots_in_range_syntax():
-    assert safe_encode_param("latency..500") == "latency..500"
+    """The '..' substring must NOT be rejected — ES range syntax and version
+    strings contain it, and an encoded value cannot escape its query-string
+    position anyway. A raise here would be the regression."""
+    try:
+        encoded = safe_encode_param("latency..500")
+    except ValueError as e:
+        pytest.fail(f"safe_encode_param must not reject '..' values, but raised: {e}")
+    assert encoded == "latency..500"
 
 
 def test_safe_encode_param_rejects_protocol_relative():
