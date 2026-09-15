@@ -1,0 +1,35 @@
+# Copy to adapters.yaml and edit. Each entry is a source query_generic_source
+# can reach. Use this ONLY for a backend with no dedicated MCP available —
+# prefer a real vendor MCP (Datadog, Splunk, etc.) when one is connected.
+sources:
+  - name: loki
+    base_url: "https://loki.example.internal"
+    auth_mode: static_header
+    auth_env_var: LOKI_AUTH_HEADER
+    header_name: Authorization
+    query_template: "/loki/api/v1/query_range?query={query}&start={start}&end={end}&limit=200"
+    response_path: "data.result"
+    covers: ["k8s_pod"]
+    max_rows_per_call: 200
+
+  - name: opensearch
+    base_url: "https://opensearch.example.internal:9200"
+    auth_mode: basic
+    basic_user_env_var: OPENSEARCH_USER
+    basic_pass_env_var: OPENSEARCH_PASSWORD
+    query_template: "/logs-*/_search?q={query}&size=200"
+    response_path: "hits.hits"
+    pagination_cursor_param: "search_after"
+    pagination_cursor_field: "_scroll_id"
+    covers: ["ec2_instance", "generic_service"]
+    max_rows_per_call: 200
+
+  - name: splunk
+    base_url: "https://splunk.example.internal:8089"
+    auth_mode: static_header
+    auth_env_var: SPLUNK_AUTH_TOKEN
+    header_name: Authorization
+    query_template: "/services/search/jobs/export?search=search {query} earliest={start} latest={end}&output_mode=json"
+    response_path: "results"
+    covers: ["generic_service"]
+    max_rows_per_call: 200

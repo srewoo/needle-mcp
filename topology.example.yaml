@@ -1,0 +1,33 @@
+# Copy to topology.yaml and extend with your own resource types. Coverage
+# facts below are vendor-generic (not company-specific) and safe to keep as
+# defaults; add your own surfaces/resource types as your stack grows.
+surfaces:
+  loki:
+    tool_prefix: "mcp__loki__"
+    covers: ["k8s_pod"]
+    blind_to: ["lambda", "airflow_task", "ec2_instance", "batch_job"]
+    coverage_note: "Loki typically only ingests container stdout/stderr shipped by a k8s log agent."
+
+  cloudwatch:
+    tool_prefix: "mcp__cloudwatch__"
+    covers: ["lambda", "step_function", "airflow_task", "ec2_instance"]
+    blind_to: ["k8s_pod"]
+    coverage_note: "CloudWatch Logs covers what writes to a CloudWatch log group; most k8s workloads don't by default."
+
+  datadog_logs:
+    tool_prefix: "mcp__datadog__"
+    covers: []
+    blind_to: []
+    coverage_note: "Datadog Logs coverage is opt-in per service via the log pipeline config. Absence of logs for a service is the ORDINARY case, not evidence the service is quiet -- confirm log collection is enabled for this service before treating an empty result as absence."
+
+  datadog_apm:
+    tool_prefix: "mcp__datadog__"
+    covers: ["generic_service"]
+    blind_to: []
+    coverage_note: "APM traces are sampled. A missing error span is not proof no errors occurred."
+
+  datadog_rum:
+    tool_prefix: "mcp__datadog__"
+    covers: ["browser_session"]
+    blind_to: ["k8s_pod", "lambda", "ec2_instance"]
+    coverage_note: "RUM is a separate product from Datadog Logs -- a log query never returns RUM data and vice versa."
