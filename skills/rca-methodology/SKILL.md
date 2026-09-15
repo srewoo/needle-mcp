@@ -167,7 +167,9 @@ BEGIN_RCANALYST_RESULT_JSON
      "source_ref": "file:line or surface", "environment": "prod"}
   ],
   "hop_trace": {"hop_count": 2, "stop_reason": "terminal|vendor_boundary|hop_cap_reached"},
-  "decomposed_by": "tenant_id"
+  "alert_metric": "metric.name",
+  "decomposed_by": "tenant_id",
+  "monitored_resource": {"unresolved": false}
 }
 END_RCANALYST_RESULT_JSON
 ```
@@ -175,5 +177,12 @@ END_RCANALYST_RESULT_JSON
 The sentinels are not decoration: on Claude Code a Stop hook greps for exactly
 this block and re-runs `validate_rca` against it before your turn is allowed to
 end. A turn that ends on narration with no envelope is the single most common
-way an investigation's work gets thrown away. Omit `decomposed_by` only when no
-metric is cited; include every other key.
+way an investigation's work gets thrown away. Include `alert_metric` whenever
+the claim is anchored to a metric or threshold — and then `decomposed_by` is
+required alongside it, naming the dimension the series was broken down by.
+Include `monitored_resource` with an `unresolved` boolean whenever the alert's
+target resource could not be definitively identified; set `unresolved: true`
+in that case (a `strong_evidence` confidence is rejected while it's true).
+Omit `alert_metric`/`decomposed_by` when no metric is cited, and omit
+`monitored_resource` when the target resource was cleanly identified;
+include every other key.
